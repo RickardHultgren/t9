@@ -65,17 +65,40 @@ Known limitations
   --muted:#82a58d;--bright:#b8ffbf;--amber:#ffd27a;--red:#ff8e8e;--blue:#94cfff;
   --shadow:0 10px 30px rgba(0,0,0,.28);--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
-*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 50% -20%,#183326 0,#07100d 45%);color:var(--text);font-family:var(--mono);min-height:100vh}
+*{box-sizing:border-box} html,body{height:100%} body{margin:0;background:radial-gradient(circle at 50% -20%,#183326 0,#07100d 45%);color:var(--text);font-family:var(--mono);display:flex;flex-direction:column;overflow:hidden}
+html{scrollbar-color:#25493a #081310;scrollbar-width:thin}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-track{background:#081310}
+*::-webkit-scrollbar-thumb{background:#25493a;border-radius:5px}
+*::-webkit-scrollbar-thumb:hover{background:#356b52}
 button,input,textarea,select{font:inherit} button{background:#13261d;color:var(--text);border:1px solid var(--line);padding:.5rem .72rem;border-radius:5px;cursor:pointer}button:hover{border-color:#77a886;background:#193126}button.primary{background:#1d3f2a;border-color:#4f8d62;color:#dfffe5}button.danger{border-color:#754545;color:#ffc2c2}button:disabled{opacity:.45;cursor:not-allowed}
-header{padding:1rem 1.2rem .75rem;border-bottom:1px solid var(--line);background:rgba(7,16,13,.9);position:sticky;top:0;z-index:10;backdrop-filter:blur(8px)}
+header{flex:0 0 auto;padding:.85rem 1.2rem .65rem;border-bottom:1px solid var(--line);background:rgba(7,16,13,.9);z-index:10;backdrop-filter:blur(8px)}
 .titleline{display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap}.titleline h1{font-size:1.2rem;margin:0;color:var(--bright);letter-spacing:.08em}.subtitle{color:var(--muted);font-size:.83rem}.status-pill{margin-left:auto;border:1px solid var(--line);padding:.25rem .55rem;border-radius:999px;font-size:.76rem}.status-pill.run{color:var(--amber);border-color:#826a3b}.status-pill.halt{color:var(--red);border-color:#754545}
 .controls{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.75rem;align-items:center}.controls label{color:var(--muted);font-size:.78rem;margin-left:.5rem}.controls input[type=range]{width:120px}
-.tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:#09130f;position:sticky;top:92px;z-index:9}.tab{border:0;border-right:1px solid #183025;border-radius:0;background:transparent;color:var(--muted);padding:.72rem 1rem;white-space:nowrap}.tab.active{color:var(--bright);background:#102019;border-bottom:2px solid #70ba7a}
-main{padding:1rem}.page{display:none}.page.active{display:block}.grid3{display:grid;grid-template-columns:minmax(260px,.9fr) minmax(340px,1.35fr) minmax(260px,.95fr);gap:1rem}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.panel{background:linear-gradient(180deg,rgba(17,34,27,.97),rgba(11,23,18,.97));border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}.panel h2,.panel h3{font-size:.86rem;letter-spacing:.08em;margin:0;padding:.65rem .8rem;border-bottom:1px solid var(--line);color:#b9eac2;background:rgba(13,29,22,.9)}.body{padding:.75rem}.small{font-size:.76rem;color:var(--muted)}.mono{font-family:var(--mono)}
-.terminal{height:320px;background:#020604;border:1px solid #203a2d;border-radius:5px;padding:.75rem;overflow:auto;white-space:pre-wrap;line-height:1.42;color:#c8f8cf}.termrow{display:flex;margin-top:.55rem;gap:.5rem}.prompt{color:#79d98c;padding-top:.52rem}.termrow input{flex:1;background:#040a07;color:#d9ffe0;border:1px solid #315440;padding:.5rem .6rem;border-radius:4px;outline:none}.termrow input:focus{border-color:#70b77f;box-shadow:0 0 0 2px rgba(112,183,127,.12)}
+.tabs{flex:0 0 auto;display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:#09130f;z-index:9}.tab{border:0;border-right:1px solid #183025;border-radius:0;background:transparent;color:var(--muted);padding:.7rem 1rem;white-space:nowrap;font-size:.82rem;letter-spacing:.04em}.tab.active{color:var(--bright);background:#102019;border-bottom:2px solid #70ba7a}
+main{flex:1;min-height:0;padding:1rem;overflow-y:auto;display:flex;flex-direction:column}
+.page{display:none}.page.active{display:block}
+.grid3{display:grid;grid-template-columns:minmax(260px,.9fr) minmax(340px,1.35fr) minmax(260px,.95fr);gap:1rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+.panel{background:linear-gradient(180deg,rgba(17,34,27,.97),rgba(11,23,18,.97));border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+.panel h2,.panel h3{font-size:.82rem;letter-spacing:.09em;margin:0;padding:.6rem .8rem;border-bottom:1px solid var(--line);color:#b9eac2;background:rgba(13,29,22,.9)}
+.body{padding:.75rem}.small{font-size:.76rem;color:var(--muted)}.mono{font-family:var(--mono)}
+/* Fill-height layout for the three dashboard-style tabs: header/tabs stay put,
+   the active page grows to the remaining viewport height, and each panel's
+   body scrolls internally instead of leaving dead space or scrolling the page. */
+#terminalPage.active,#cpuPage.active,#memoryPage.active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+#terminalPage.active>.grid3,#cpuPage.active>.grid2,#memoryPage.active>.grid2{flex:1;min-height:0;align-items:stretch}
+#terminalPage.active .panel,#cpuPage.active .panel,#memoryPage.active .panel{display:flex;flex-direction:column;min-height:0}
+#terminalPage.active .panel>.body,#cpuPage.active .panel>.body,#memoryPage.active .panel>.body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+#memoryPage.active .grid2>div{display:flex;flex-direction:column;min-height:0;gap:1rem}
+#memoryPage.active .grid2>div>.panel:first-child{flex:1;min-height:0}
+#memoryPage.active .grid2>div>.panel:last-child{flex:0 0 auto}
+#memoryPage.active #asmEditor,#memoryPage.active #disasm{flex:1;min-height:120px}
+#memoryPage.active .toolbar,#memoryPage.active .errorbox{flex:0 0 auto}
+.terminal{flex:1;min-height:200px;height:320px;background:#020604;border:1px solid #203a2d;border-radius:5px;padding:.75rem;overflow:auto;white-space:pre-wrap;line-height:1.42;color:#c8f8cf;font-size:.85rem}.termrow{flex:0 0 auto;display:flex;margin-top:.55rem;gap:.5rem}.prompt{color:#79d98c;padding-top:.52rem}.termrow input{flex:1;background:#040a07;color:#d9ffe0;border:1px solid #315440;padding:.5rem .6rem;border-radius:4px;outline:none}.termrow input:focus{border-color:#70b77f;box-shadow:0 0 0 2px rgba(112,183,127,.12)}
 .regtable,.memtable,.testtable{width:100%;border-collapse:collapse;font-size:.78rem}.regtable td,.regtable th,.memtable td,.memtable th,.testtable td,.testtable th{padding:.34rem .42rem;border-bottom:1px solid #1c3328;text-align:left}.regtable th,.memtable th,.testtable th{color:var(--muted);font-weight:400;position:sticky;top:0;background:#0d1b15}.trits{letter-spacing:.13em;color:#bdfdc5}.negative{color:#ffb1a8}.zero{color:#d6f4dc}.positive{color:#9beaff}.highlight{background:#193723!important}.activecell{outline:1px solid #74c982;outline-offset:-1px}
-.stackbox{max-height:250px;overflow:auto}.stackitem{display:grid;grid-template-columns:40px 1fr auto;gap:.5rem;padding:.33rem .45rem;border-bottom:1px solid #1a3026;font-size:.77rem}.stackitem.top{background:#173223}.stackitem.next{background:#12291e}.badge{color:var(--amber)}
-.memwrap{height:480px;overflow:auto;border:1px solid #1e392c;border-radius:5px}.memtable input{width:90px;background:#07100d;border:1px solid #264634;color:var(--text);padding:.18rem .3rem}
+.stackbox{flex:1;min-height:80px;overflow:auto}.stackitem{display:grid;grid-template-columns:40px 1fr auto;gap:.5rem;padding:.33rem .45rem;border-bottom:1px solid #1a3026;font-size:.77rem}.stackitem.top{background:#173223}.stackitem.next{background:#12291e}.badge{color:var(--amber)}
+.memwrap{flex:1;min-height:200px;height:480px;overflow:auto;border:1px solid #1e392c;border-radius:5px}.memtable input{width:90px;background:#07100d;border:1px solid #264634;color:var(--text);padding:.18rem .3rem}
 textarea{width:100%;min-height:240px;background:#040906;color:#d1f8d7;border:1px solid #2b4b3a;border-radius:5px;padding:.7rem;resize:vertical;line-height:1.4}.toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}.errorbox{white-space:pre-wrap;color:#ffaaaa;background:#240e0e;border:1px solid #6f3030;padding:.5rem;border-radius:4px;display:none}
 svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-radius:6px}.node{fill:#10281d;stroke:#3a654b;stroke-width:1.5}.node.active{fill:#265735;stroke:#9cf1a8;stroke-width:2.5}.wire{stroke:#355e46;stroke-width:2;fill:none}.wire.active{stroke:#b3ffb9;stroke-width:4}.svgtext{fill:#d8f7de;font-family:var(--mono);font-size:13px}.svgsmall{fill:#87ab91;font-family:var(--mono);font-size:11px}
 .io-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.7rem}.io-card{border:1px solid #234231;border-radius:6px;padding:.65rem;background:#09150f}.io-card h4{margin:0 0 .5rem;color:#bde5c5;font-size:.8rem}.leds{display:flex;gap:.35rem;flex-wrap:wrap}.led{width:20px;height:20px;border-radius:50%;border:1px solid #36543f;background:#101712}.led.on{background:#c9ff93;box-shadow:0 0 12px #baff79}.motor{font-size:1.05rem;text-align:center;padding:.8rem;border:1px solid #2a4937;border-radius:4px}.beeper.on{animation:pulse .18s alternate 4}@keyframes pulse{to{background:#705c20}}
@@ -84,8 +107,29 @@ svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-r
 .logicrow{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}.logicout{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem;margin-top:.7rem}.logiccell{border:1px solid #294737;padding:.55rem;border-radius:4px}.logiccell span{display:block;color:var(--muted);font-size:.7rem}.logiccell b{font-size:1rem;color:var(--bright)}
 .arch{line-height:1.55;font-family:system-ui,sans-serif}.arch code,.arch pre{font-family:var(--mono)}.arch pre{background:#07100d;border:1px solid #244132;padding:.7rem;overflow:auto}.opgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.35rem;font-family:var(--mono);font-size:.76rem}.op{border:1px solid #223e2f;padding:.35rem .5rem;border-radius:3px}.pass{color:#aaffb5}.fail{color:#ff9f9f}
 .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.row input,.row select{background:#07110d;color:var(--text);border:1px solid #31503f;padding:.38rem;border-radius:4px}.spacer{height:.75rem}.nowrap{white-space:nowrap}
-@media(max-width:1050px){.grid3{grid-template-columns:1fr 1fr}.grid3>.panel:last-child{grid-column:1/-1}.tabs{top:123px}}
-@media(max-width:720px){header{position:static}.tabs{position:static}.grid3,.grid2{grid-template-columns:1fr}.grid3>.panel:last-child{grid-column:auto}main{padding:.6rem}.terminal{height:260px}.controls{gap:.3rem}.controls button{padding:.42rem .5rem}.trit-switches,.trit-lamps,.rail-trits{gap:.15rem}.trit-lamp{font-size:.72rem}.memwrap{height:390px}}
+@media(max-width:1050px){.grid3{grid-template-columns:1fr 1fr}.grid3>.panel:last-child{grid-column:1/-1}}
+@media(max-width:720px){
+  body{overflow:visible}
+  main{overflow:visible;flex:none;display:block;padding:.6rem}
+  .page.active{display:block}
+  #terminalPage.active,#cpuPage.active,#memoryPage.active{display:block;flex:none;overflow:visible}
+  #terminalPage.active>.grid3,#cpuPage.active>.grid2,#memoryPage.active>.grid2{flex:none}
+  #terminalPage.active .panel,#cpuPage.active .panel,#memoryPage.active .panel{display:block}
+  #terminalPage.active .panel>.body,#cpuPage.active .panel>.body,#memoryPage.active .panel>.body{display:block;flex:none;overflow:visible}
+  #memoryPage.active .grid2>div{display:block}
+  #memoryPage.active .grid2>div>.panel:first-child,#memoryPage.active .grid2>div>.panel:last-child{flex:none}
+  #memoryPage.active .grid2>div>.panel+.panel{margin-top:1rem}
+  .grid3,.grid2{grid-template-columns:1fr}
+  .grid3>.panel:last-child{grid-column:auto}
+  .terminal{height:260px;flex:none}
+  .stackbox{flex:none;max-height:220px}
+  .controls{gap:.3rem}
+  .controls button{padding:.42rem .5rem}
+  .trit-switches,.trit-lamps,.rail-trits{gap:.15rem}
+  .trit-lamp{font-size:.72rem}
+  .memwrap{height:390px;flex:none}
+  #memoryPage.active #asmEditor,#memoryPage.active #disasm{flex:none}
+}
 </style>
 </head>
 <body>
@@ -110,7 +154,7 @@ svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-r
 <section id="terminalPage" class="page active">
   <div class="grid3">
     <div class="panel"><h2>CPU STATE</h2><div class="body"><table class="regtable" id="regTable"></table><div class="spacer"></div><div class="row"><label class="small">trit display</label><select id="tritMode"><option value="symbols">- 0 +</option><option value="numbers">-1 0 +1</option><option value="unicode">− 0 +</option></select></div></div></div>
-    <div class="panel"><h2>INTERACTIVE FORTH TERMINAL</h2><div class="body"><div id="terminal" class="terminal"></div><div class="termrow"><span class="prompt">›</span><input id="termInput" autocomplete="off" spellcheck="false" placeholder="3 4 + ."></div><div class="toolbar"><button id="clearTerm">CLEAR</button><button id="queueKey">QUEUE TEXT AS KEY INPUT</button><select id="exampleSelect"></select><button id="loadExample">LOAD EXAMPLE</button></div><div class="small">Ctrl+C = BREAK · ↑/↓ = command history · Colon definitions compile into emulated memory.</div></div></div>
+    <div class="panel" style="height:60vh;"><h2>INTERACTIVE FORTH TERMINAL</h2><div class="body"><div id="terminal" class="terminal"></div><div class="termrow"><span class="prompt">›</span><input id="termInput" autocomplete="off" spellcheck="false" placeholder="3 4 + ."></div><div class="toolbar"><button id="clearTerm">CLEAR</button><button id="queueKey">QUEUE TEXT AS KEY INPUT</button><select id="exampleSelect"></select><button id="loadExample">LOAD EXAMPLE</button></div><div class="small">Ctrl+C = BREAK · ↑/↓ = command history · Colon definitions compile into emulated memory.</div></div></div>
     <div class="panel"><h2>STACKS</h2><div class="body"><h3>DATA STACK</h3><div id="dataStack" class="stackbox"></div><div class="spacer"></div><h3>RETURN STACK</h3><div id="returnStack" class="stackbox"></div></div></div>
   </div>
 </section>
@@ -153,7 +197,7 @@ LIT 4
 ADD
 OUT 8
 HALT</textarea><div class="toolbar"><button id="assembleBtn">ASSEMBLE</button><button id="loadAsmBtn">ASSEMBLE + LOAD @ 0</button><button id="runAsmBtn" class="primary">LOAD + RUN</button></div><div id="asmError" class="errorbox"></div><textarea id="disasm" readonly style="min-height:210px"></textarea></div></div>
-      <div class="spacer"></div><div class="panel"><h2>RAW MEMORY IMAGE</h2><div class="body"><div class="toolbar"><button id="exportMem">EXPORT MEMORY</button><button id="importMemBtn">IMPORT MEMORY</button><input id="importMemFile" type="file" accept="application/json,.json" hidden></div><div class="small">Memory exports are JSON arrays of signed 9-trit integers.</div></div></div>
+      <div class="panel"><h2>RAW MEMORY IMAGE</h2><div class="body"><div class="toolbar"><button id="exportMem">EXPORT MEMORY</button><button id="importMemBtn">IMPORT MEMORY</button><input id="importMemFile" type="file" accept="application/json,.json" hidden></div><div class="small">Memory exports are JSON arrays of signed 9-trit integers.</div></div></div>
     </div>
   </div>
 </section>
