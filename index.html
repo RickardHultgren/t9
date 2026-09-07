@@ -63,9 +63,9 @@ Known limitations
 :root{
   --bg:#07100d;--panel:#0d1915;--panel2:#10221b;--line:#274435;--text:#d6f4dc;
   --muted:#82a58d;--bright:#b8ffbf;--amber:#ffd27a;--red:#ff8e8e;--blue:#94cfff;
-  --shadow:0 10px 30px rgba(0,0,0,.28);--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --shadow:0 10px 30px rgba(0,0,0,.28);--mono:"Ubuntu Mono","IBM Plex Mono","Liberation Mono","DejaVu Sans Mono",Consolas,monospace;
 }
-*{box-sizing:border-box} html,body{height:100%} body{margin:0;background:radial-gradient(circle at 50% -20%,#183326 0,#07100d 45%);color:var(--text);font-family:var(--mono);display:flex;flex-direction:column;overflow:hidden}
+*{box-sizing:border-box} html,body{height:100%} body{margin:0;background:radial-gradient(circle at 50% -20%,#183326 0,#07100d 45%);color:var(--text);font-family:var(--mono);font-stretch:condensed;font-variation-settings:"wdth" 82;letter-spacing:-.025em;display:flex;flex-direction:column;overflow:hidden}
 html{scrollbar-color:#25493a #081310;scrollbar-width:thin}
 *::-webkit-scrollbar{width:9px;height:9px}
 *::-webkit-scrollbar-track{background:#081310}
@@ -95,9 +95,9 @@ main{flex:1;min-height:0;padding:1rem;overflow-y:auto;display:flex;flex-directio
 #memoryPage.active .grid2>div>.panel:last-child{flex:0 0 auto}
 #memoryPage.active #asmEditor,#memoryPage.active #disasm{flex:1;min-height:120px}
 #memoryPage.active .toolbar,#memoryPage.active .errorbox{flex:0 0 auto}
-.terminal{flex:1;min-height:200px;height:320px;background:#020604;border:1px solid #203a2d;border-radius:5px;padding:.75rem;overflow:auto;white-space:pre-wrap;line-height:1.42;color:#c8f8cf;font-size:.85rem}.termrow{flex:0 0 auto;display:flex;margin-top:.55rem;gap:.5rem}.prompt{color:#79d98c;padding-top:.52rem}.termrow input{flex:1;background:#040a07;color:#d9ffe0;border:1px solid #315440;padding:.5rem .6rem;border-radius:4px;outline:none}.termrow input:focus{border-color:#70b77f;box-shadow:0 0 0 2px rgba(112,183,127,.12)}
+.terminal{flex:1;min-height:150px;height:320px;background:#020604;border:1px solid #203a2d;border-radius:5px;padding:.75rem;overflow:auto;white-space:pre-wrap;line-height:1.42;color:#c8f8cf;font-size:.85rem}.termrow{flex:0 0 auto;display:flex;margin-top:.55rem;gap:.5rem}.prompt{color:#79d98c;padding-top:.52rem}.termrow input{flex:1;background:#040a07;color:#d9ffe0;border:1px solid #315440;padding:.5rem .6rem;border-radius:4px;outline:none}.termrow input:focus{border-color:#70b77f;box-shadow:0 0 0 2px rgba(112,183,127,.12)}
 .regtable,.memtable,.testtable{width:100%;border-collapse:collapse;font-size:.78rem}.regtable td,.regtable th,.memtable td,.memtable th,.testtable td,.testtable th{padding:.34rem .42rem;border-bottom:1px solid #1c3328;text-align:left}.regtable th,.memtable th,.testtable th{color:var(--muted);font-weight:400;position:sticky;top:0;background:#0d1b15}.trits{letter-spacing:.13em;color:#bdfdc5}.negative{color:#ffb1a8}.zero{color:#d6f4dc}.positive{color:#9beaff}.highlight{background:#193723!important}.activecell{outline:1px solid #74c982;outline-offset:-1px}
-.stackbox{flex:1;min-height:80px;overflow:auto}.stackitem{display:grid;grid-template-columns:40px 1fr auto;gap:.5rem;padding:.33rem .45rem;border-bottom:1px solid #1a3026;font-size:.77rem}.stackitem.top{background:#173223}.stackitem.next{background:#12291e}.badge{color:var(--amber)}
+.stacks-panel>.body{gap:.35rem}.stacks-panel .stackbox{flex:1 1 0;min-height:120px;overflow:auto;border:1px solid #1e392c;border-radius:5px;background:#08110d}.stacks-panel .spacer{height:.35rem;flex:0 0 auto}.stackbox{flex:1;min-height:80px;overflow:auto}.stackitem{display:grid;grid-template-columns:40px 1fr auto;gap:.5rem;padding:.33rem .45rem;border-bottom:1px solid #1a3026;font-size:.77rem}.stackitem.top{background:#173223}.stackitem.next{background:#12291e}.badge{color:var(--amber)}
 .memwrap{flex:1;min-height:200px;height:480px;overflow:auto;border:1px solid #1e392c;border-radius:5px}.memtable input{width:90px;background:#07100d;border:1px solid #264634;color:var(--text);padding:.18rem .3rem}
 textarea{width:100%;min-height:240px;background:#040906;color:#d1f8d7;border:1px solid #2b4b3a;border-radius:5px;padding:.7rem;resize:vertical;line-height:1.4}.toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}.errorbox{white-space:pre-wrap;color:#ffaaaa;background:#240e0e;border:1px solid #6f3030;padding:.5rem;border-radius:4px;display:none}
 svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-radius:6px}.node{fill:#10281d;stroke:#3a654b;stroke-width:1.5}.node.active{fill:#265735;stroke:#9cf1a8;stroke-width:2.5}.wire{stroke:#355e46;stroke-width:2;fill:none}.wire.active{stroke:#b3ffb9;stroke-width:4}.svgtext{fill:#d8f7de;font-family:var(--mono);font-size:13px}.svgsmall{fill:#87ab91;font-family:var(--mono);font-size:11px}
@@ -105,7 +105,7 @@ svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-r
 .trit-switches{display:grid;grid-template-columns:repeat(9,1fr);gap:.3rem}.trit-switch{padding:.45rem .15rem}.trit-lamps{display:grid;grid-template-columns:repeat(9,1fr);gap:.3rem}.trit-lamp{border:1px solid #294737;text-align:center;padding:.5rem .1rem;border-radius:3px;font-weight:bold}.trit-lamp.n{color:#ffaaa0;background:#2d1514}.trit-lamp.z{color:#e9f8ec;background:#17201a}.trit-lamp.p{color:#a8ddff;background:#10232e}
 .keypad{display:grid;grid-template-columns:repeat(4,1fr);gap:.35rem}.phonepad{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem;max-width:300px}.keypad button,.phonepad button{min-height:44px}.front-controls{display:flex;gap:.4rem;flex-wrap:wrap;margin:.7rem 0}.rail{display:grid;grid-template-columns:80px 1fr;gap:.6rem;align-items:center;margin:.45rem 0}.rail-trits{display:grid;grid-template-columns:repeat(9,1fr);gap:.25rem}.volt{font-size:.72rem;text-align:center;border:1px solid #294737;padding:.28rem;border-radius:3px}
 .logicrow{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}.logicout{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem;margin-top:.7rem}.logiccell{border:1px solid #294737;padding:.55rem;border-radius:4px}.logiccell span{display:block;color:var(--muted);font-size:.7rem}.logiccell b{font-size:1rem;color:var(--bright)}
-.arch{line-height:1.55;font-family:system-ui,sans-serif}.arch code,.arch pre{font-family:var(--mono)}.arch pre{background:#07100d;border:1px solid #244132;padding:.7rem;overflow:auto}.opgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.35rem;font-family:var(--mono);font-size:.76rem}.op{border:1px solid #223e2f;padding:.35rem .5rem;border-radius:3px}.pass{color:#aaffb5}.fail{color:#ff9f9f}
+.arch{line-height:1.55;font-family:var(--mono);font-stretch:condensed;font-variation-settings:"wdth" 82;letter-spacing:-.018em}.arch code,.arch pre{font-family:var(--mono)}.arch pre{background:#07100d;border:1px solid #244132;padding:.7rem;overflow:auto}.opgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.35rem;font-family:var(--mono);font-size:.76rem}.op{border:1px solid #223e2f;padding:.35rem .5rem;border-radius:3px}.pass{color:#aaffb5}.fail{color:#ff9f9f}
 .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.row input,.row select{background:#07110d;color:var(--text);border:1px solid #31503f;padding:.38rem;border-radius:4px}.spacer{height:.75rem}.nowrap{white-space:nowrap}
 @media(max-width:1050px){.grid3{grid-template-columns:1fr 1fr}.grid3>.panel:last-child{grid-column:1/-1}}
 @media(max-width:720px){
@@ -122,6 +122,8 @@ svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-r
   .grid3,.grid2{grid-template-columns:1fr}
   .grid3>.panel:last-child{grid-column:auto}
   .terminal{height:260px;flex:none}
+  .stacks-panel{height:auto!important}
+  .stacks-panel .stackbox{min-height:150px;max-height:260px}
   .stackbox{flex:none;max-height:220px}
   .controls{gap:.3rem}
   .controls button{padding:.42rem .5rem}
@@ -153,9 +155,9 @@ svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-r
 <main>
 <section id="terminalPage" class="page active">
   <div class="grid3">
-    <div class="panel"><h2>CPU STATE</h2><div class="body"><table class="regtable" id="regTable"></table><div class="spacer"></div><div class="row"><label class="small">trit display</label><select id="tritMode"><option value="symbols">- 0 +</option><option value="numbers">-1 0 +1</option><option value="unicode">− 0 +</option></select></div></div></div>
-    <div class="panel" style="height:60vh;"><h2>INTERACTIVE FORTH TERMINAL</h2><div class="body"><div id="terminal" class="terminal"></div><div class="termrow"><span class="prompt">›</span><input id="termInput" autocomplete="off" spellcheck="false" placeholder="3 4 + ."></div><div class="toolbar"><button id="clearTerm">CLEAR</button><button id="queueKey">QUEUE TEXT AS KEY INPUT</button><select id="exampleSelect"></select><button id="loadExample">LOAD EXAMPLE</button></div><div class="small">Ctrl+C = BREAK · ↑/↓ = command history · Colon definitions compile into emulated memory.</div></div></div>
-    <div class="panel"><h2>STACKS</h2><div class="body"><h3>DATA STACK</h3><div id="dataStack" class="stackbox"></div><div class="spacer"></div><h3>RETURN STACK</h3><div id="returnStack" class="stackbox"></div></div></div>
+    <div class="panel" style="height:50vh;"><h2>CPU STATE</h2><div class="body"><table class="regtable" id="regTable"></table><div class="spacer"></div><div class="row"><label class="small">trit display</label><select id="tritMode"><option value="symbols">- 0 +</option><option value="numbers">-1 0 +1</option><option value="unicode">− 0 +</option></select></div></div></div>
+    <div class="panel" style="height:50vh;"><h2>INTERACTIVE FORTH TERMINAL</h2><div class="body"><div id="terminal" class="terminal"></div><div class="termrow"><span class="prompt">›</span><input id="termInput" autocomplete="off" spellcheck="false" placeholder="3 4 + ."></div><div class="toolbar" style="font-size:0.55em; padding:-0.5em;"><button id="clearTerm">CLEAR</button><button id="queueKey">QUEUE TEXT AS KEY INPUT</button><select id="exampleSelect"></select><button id="loadExample">LOAD EXAMPLE</button></div><div class="small">Ctrl+C = BREAK · ↑/↓ = command history · Colon definitions compile into emulated memory.</div></div></div>
+    <div class="panel stacks-panel"><h2>STACKS</h2><div class="body"><h3>DATA STACK</h3><div id="dataStack" class="stackbox"></div><div class="spacer"></div><h3>RETURN STACK</h3><div id="returnStack" class="stackbox"></div></div></div>
   </div>
 </section>
 
