@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>T9 — Balanced-Ternary Forth Computer Emulator</title>
+<!--
+T9 BALANCED-TERNARY FORTH COMPUTER EMULATOR
+============================================
+Architecture
+------------
+* 9-trit balanced-ternary machine words, each trit in {-1,0,+1}.
+* Numeric range per word: -9841..+9841, with wraparound modulo 3^9 = 19683.
+* 3-trit opcode space: exactly 27 codes, represented by integers -13..+13.
+* Two-stack Forth-oriented datapath: data stack and return stack.
+* CPU-visible state: PC, IR, T, N, DSP, RSP, cycle, phase, halted.
+* 2187 words of memory by default (configurable in source). Addresses are ordinary
+  non-negative memory indices but fit inside a 9-trit machine word.
+* Instruction operands occupy following memory words (LIT, branches, CALL, IN, OUT).
+* CPU execution is split into FETCH and EXECUTE microcycles for visible stepping.
+
+Instruction encoding
+--------------------
+The opcode itself is a signed balanced-ternary 3-trit integer, stored inside a 9-trit
+word. Codes -13..+13 cover all 27 possible 3-trit patterns. Some instructions have
+one operand in the next 9-trit word. The opcode table is visible in Architecture.
+
+Memory organization
+-------------------
+0..255      assembly/program area
+256..383    scratch / interactive area
+384..1791   compiled Forth dictionary
+1792..2186  variables/data
+The emulator does not require programs to obey this map; it is a convention.
+
+I/O model
+---------
+Abstract numbered ports. CPU IN/OUT instructions use a port operand in the next word.
+Port 0 terminal character input, 1 terminal character output, 2 LED bank, 3 beeper,
+4 ternary switch, 5 sensor, 6 motor direction, 7 motor power, 8 decimal number output.
+EMIT and KEY are dedicated character terminal primitives.
+
+Forth implementation
+--------------------
+The JavaScript outer interpreter tokenizes source and manages compile-time directives,
+but arithmetic, stack primitives, memory, branches, colon definitions, calls/returns,
+EMIT, @/!, and compiled control flow execute through the emulated CPU. Colon definitions
+are stored as actual machine code in emulated memory and terminate with EXIT.
+Compiler macros such as =, <, >, 0=, 0< and 0> expand into CPU branches/literals.
+A small kernel (ROT, CR, SPACE, .) is compiled into machine memory at boot.
+This is intentionally a compact Forth-like dialect, not full ANS Forth.
+
+Known limitations
+-----------------
+* / and MOD are not implemented in the first hardware-realistic ISA; multiplication is.
+* Strings, CREATE/DOES>, DO/LOOP, pictured numeric output and full ANS Forth are absent.
+* VARIABLE and CONSTANT are outer-interpreter directives; their resulting runtime words
+  are compiled machine-code definitions.
+* The "physical voltages" panel is conceptual, not an analog circuit simulator.
+* The front panel and salvaged-keypad modes are virtual input devices.
+-->
+<style>
+:root{
+  --bg:#07100d;--panel:#0d1915;--panel2:#10221b;--line:#274435;--text:#d6f4dc;
+  --muted:#82a58d;--bright:#b8ffbf;--amber:#ffd27a;--red:#ff8e8e;--blue:#94cfff;
+  --shadow:0 10px 30px rgba(0,0,0,.28);--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 50% -20%,#183326 0,#07100d 45%);color:var(--text);font-family:var(--mono);min-height:100vh}
+button,input,textarea,select{font:inherit} button{background:#13261d;color:var(--text);border:1px solid var(--line);padding:.5rem .72rem;border-radius:5px;cursor:pointer}button:hover{border-color:#77a886;background:#193126}button.primary{background:#1d3f2a;border-color:#4f8d62;color:#dfffe5}button.danger{border-color:#754545;color:#ffc2c2}button:disabled{opacity:.45;cursor:not-allowed}
+header{padding:1rem 1.2rem .75rem;border-bottom:1px solid var(--line);background:rgba(7,16,13,.9);position:sticky;top:0;z-index:10;backdrop-filter:blur(8px)}
+.titleline{display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap}.titleline h1{font-size:1.2rem;margin:0;color:var(--bright);letter-spacing:.08em}.subtitle{color:var(--muted);font-size:.83rem}.status-pill{margin-left:auto;border:1px solid var(--line);padding:.25rem .55rem;border-radius:999px;font-size:.76rem}.status-pill.run{color:var(--amber);border-color:#826a3b}.status-pill.halt{color:var(--red);border-color:#754545}
+.controls{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.75rem;align-items:center}.controls label{color:var(--muted);font-size:.78rem;margin-left:.5rem}.controls input[type=range]{width:120px}
+.tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:#09130f;position:sticky;top:92px;z-index:9}.tab{border:0;border-right:1px solid #183025;border-radius:0;background:transparent;color:var(--muted);padding:.72rem 1rem;white-space:nowrap}.tab.active{color:var(--bright);background:#102019;border-bottom:2px solid #70ba7a}
+main{padding:1rem}.page{display:none}.page.active{display:block}.grid3{display:grid;grid-template-columns:minmax(260px,.9fr) minmax(340px,1.35fr) minmax(260px,.95fr);gap:1rem}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.panel{background:linear-gradient(180deg,rgba(17,34,27,.97),rgba(11,23,18,.97));border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}.panel h2,.panel h3{font-size:.86rem;letter-spacing:.08em;margin:0;padding:.65rem .8rem;border-bottom:1px solid var(--line);color:#b9eac2;background:rgba(13,29,22,.9)}.body{padding:.75rem}.small{font-size:.76rem;color:var(--muted)}.mono{font-family:var(--mono)}
+.terminal{height:320px;background:#020604;border:1px solid #203a2d;border-radius:5px;padding:.75rem;overflow:auto;white-space:pre-wrap;line-height:1.42;color:#c8f8cf}.termrow{display:flex;margin-top:.55rem;gap:.5rem}.prompt{color:#79d98c;padding-top:.52rem}.termrow input{flex:1;background:#040a07;color:#d9ffe0;border:1px solid #315440;padding:.5rem .6rem;border-radius:4px;outline:none}.termrow input:focus{border-color:#70b77f;box-shadow:0 0 0 2px rgba(112,183,127,.12)}
+.regtable,.memtable,.testtable{width:100%;border-collapse:collapse;font-size:.78rem}.regtable td,.regtable th,.memtable td,.memtable th,.testtable td,.testtable th{padding:.34rem .42rem;border-bottom:1px solid #1c3328;text-align:left}.regtable th,.memtable th,.testtable th{color:var(--muted);font-weight:400;position:sticky;top:0;background:#0d1b15}.trits{letter-spacing:.13em;color:#bdfdc5}.negative{color:#ffb1a8}.zero{color:#d6f4dc}.positive{color:#9beaff}.highlight{background:#193723!important}.activecell{outline:1px solid #74c982;outline-offset:-1px}
+.stackbox{max-height:250px;overflow:auto}.stackitem{display:grid;grid-template-columns:40px 1fr auto;gap:.5rem;padding:.33rem .45rem;border-bottom:1px solid #1a3026;font-size:.77rem}.stackitem.top{background:#173223}.stackitem.next{background:#12291e}.badge{color:var(--amber)}
+.memwrap{height:480px;overflow:auto;border:1px solid #1e392c;border-radius:5px}.memtable input{width:90px;background:#07100d;border:1px solid #264634;color:var(--text);padding:.18rem .3rem}
+textarea{width:100%;min-height:240px;background:#040906;color:#d1f8d7;border:1px solid #2b4b3a;border-radius:5px;padding:.7rem;resize:vertical;line-height:1.4}.toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}.errorbox{white-space:pre-wrap;color:#ffaaaa;background:#240e0e;border:1px solid #6f3030;padding:.5rem;border-radius:4px;display:none}
+svg{width:100%;height:400px;background:#07100d;border:1px solid #244132;border-radius:6px}.node{fill:#10281d;stroke:#3a654b;stroke-width:1.5}.node.active{fill:#265735;stroke:#9cf1a8;stroke-width:2.5}.wire{stroke:#355e46;stroke-width:2;fill:none}.wire.active{stroke:#b3ffb9;stroke-width:4}.svgtext{fill:#d8f7de;font-family:var(--mono);font-size:13px}.svgsmall{fill:#87ab91;font-family:var(--mono);font-size:11px}
+.io-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.7rem}.io-card{border:1px solid #234231;border-radius:6px;padding:.65rem;background:#09150f}.io-card h4{margin:0 0 .5rem;color:#bde5c5;font-size:.8rem}.leds{display:flex;gap:.35rem;flex-wrap:wrap}.led{width:20px;height:20px;border-radius:50%;border:1px solid #36543f;background:#101712}.led.on{background:#c9ff93;box-shadow:0 0 12px #baff79}.motor{font-size:1.05rem;text-align:center;padding:.8rem;border:1px solid #2a4937;border-radius:4px}.beeper.on{animation:pulse .18s alternate 4}@keyframes pulse{to{background:#705c20}}
+.trit-switches{display:grid;grid-template-columns:repeat(9,1fr);gap:.3rem}.trit-switch{padding:.45rem .15rem}.trit-lamps{display:grid;grid-template-columns:repeat(9,1fr);gap:.3rem}.trit-lamp{border:1px solid #294737;text-align:center;padding:.5rem .1rem;border-radius:3px;font-weight:bold}.trit-lamp.n{color:#ffaaa0;background:#2d1514}.trit-lamp.z{color:#e9f8ec;background:#17201a}.trit-lamp.p{color:#a8ddff;background:#10232e}
+.keypad{display:grid;grid-template-columns:repeat(4,1fr);gap:.35rem}.phonepad{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem;max-width:300px}.keypad button,.phonepad button{min-height:44px}.front-controls{display:flex;gap:.4rem;flex-wrap:wrap;margin:.7rem 0}.rail{display:grid;grid-template-columns:80px 1fr;gap:.6rem;align-items:center;margin:.45rem 0}.rail-trits{display:grid;grid-template-columns:repeat(9,1fr);gap:.25rem}.volt{font-size:.72rem;text-align:center;border:1px solid #294737;padding:.28rem;border-radius:3px}
+.logicrow{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}.logicout{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem;margin-top:.7rem}.logiccell{border:1px solid #294737;padding:.55rem;border-radius:4px}.logiccell span{display:block;color:var(--muted);font-size:.7rem}.logiccell b{font-size:1rem;color:var(--bright)}
+.arch{line-height:1.55;font-family:system-ui,sans-serif}.arch code,.arch pre{font-family:var(--mono)}.arch pre{background:#07100d;border:1px solid #244132;padding:.7rem;overflow:auto}.opgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.35rem;font-family:var(--mono);font-size:.76rem}.op{border:1px solid #223e2f;padding:.35rem .5rem;border-radius:3px}.pass{color:#aaffb5}.fail{color:#ff9f9f}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.row input,.row select{background:#07110d;color:var(--text);border:1px solid #31503f;padding:.38rem;border-radius:4px}.spacer{height:.75rem}.nowrap{white-space:nowrap}
+@media(max-width:1050px){.grid3{grid-template-columns:1fr 1fr}.grid3>.panel:last-child{grid-column:1/-1}.tabs{top:123px}}
+@media(max-width:720px){header{position:static}.tabs{position:static}.grid3,.grid2{grid-template-columns:1fr}.grid3>.panel:last-child{grid-column:auto}main{padding:.6rem}.terminal{height:260px}.controls{gap:.3rem}.controls button{padding:.42rem .5rem}.trit-switches,.trit-lamps,.rail-trits{gap:.15rem}.trit-lamp{font-size:.72rem}.memwrap{height:390px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="titleline"><h1>T9 // TERNARY FORTH LAB</h1><span class="subtitle">9-trit balanced-ternary two-stack computer</span><span id="statusPill" class="status-pill">READY</span></div>
+  <div class="controls">
+    <button id="runBtn" class="primary">RUN</button><button id="pauseBtn">PAUSE</button><button id="stepBtn">STEP INSTR</button><button id="cycleBtn">STEP CYCLE</button>
+    <button data-burst="10">RUN 10</button><button data-burst="100">RUN 100</button><button data-burst="1000">RUN 1000</button>
+    <button id="resetBtn">RESET</button><button id="hardResetBtn" class="danger">HARD RESET</button><button id="breakBtn" class="danger">BREAK</button>
+    <label>speed <input id="speed" type="range" min="1" max="5000" value="500"></label><span id="speedLabel" class="small">500 instr/frame</span>
+  </div>
+</header>
+<nav class="tabs">
+  <button class="tab active" data-page="terminalPage">TERMINAL</button>
+  <button class="tab" data-page="cpuPage">CPU</button>
+  <button class="tab" data-page="memoryPage">MEMORY / ASM</button>
+  <button class="tab" data-page="ioPage">I/O</button>
+  <button class="tab" data-page="physicalPage">PHYSICAL / LOGIC</button>
+  <button class="tab" data-page="archPage">ARCHITECTURE / TESTS</button>
+</nav>
+<main>
+<section id="terminalPage" class="page active">
+  <div class="grid3">
+    <div class="panel"><h2>CPU STATE</h2><div class="body"><table class="regtable" id="regTable"></table><div class="spacer"></div><div class="row"><label class="small">trit display</label><select id="tritMode"><option value="symbols">- 0 +</option><option value="numbers">-1 0 +1</option><option value="unicode">− 0 +</option></select></div></div></div>
+    <div class="panel"><h2>INTERACTIVE FORTH TERMINAL</h2><div class="body"><div id="terminal" class="terminal"></div><div class="termrow"><span class="prompt">›</span><input id="termInput" autocomplete="off" spellcheck="false" placeholder="3 4 + ."></div><div class="toolbar"><button id="clearTerm">CLEAR</button><button id="queueKey">QUEUE TEXT AS KEY INPUT</button><select id="exampleSelect"></select><button id="loadExample">LOAD EXAMPLE</button></div><div class="small">Ctrl+C = BREAK · ↑/↓ = command history · Colon definitions compile into emulated memory.</div></div></div>
+    <div class="panel"><h2>STACKS</h2><div class="body"><h3>DATA STACK</h3><div id="dataStack" class="stackbox"></div><div class="spacer"></div><h3>RETURN STACK</h3><div id="returnStack" class="stackbox"></div></div></div>
+  </div>
+</section>
+
+<section id="cpuPage" class="page">
+  <div class="grid2">
+    <div class="panel"><h2>MICROARCHITECTURE</h2><div class="body">
+      <svg id="datapath" viewBox="0 0 700 430" aria-label="CPU datapath">
+        <path id="wMemIR" class="wire" d="M350 65 L350 105"/><path id="wIRDec" class="wire" d="M350 145 L350 185"/>
+        <path id="wDecT" class="wire" d="M310 225 L200 260"/><path id="wDecN" class="wire" d="M390 225 L500 260"/>
+        <path id="wTAlu" class="wire" d="M200 300 L310 335"/><path id="wNAlu" class="wire" d="M500 300 L390 335"/>
+        <path id="wAluStack" class="wire" d="M350 375 L350 405"/><path id="wRetPC" class="wire" d="M610 145 L610 95"/>
+        <rect id="nMem" class="node" x="270" y="25" width="160" height="40" rx="5"/><text class="svgtext" x="350" y="50" text-anchor="middle">PROGRAM MEMORY</text>
+        <rect id="nIR" class="node" x="305" y="105" width="90" height="40" rx="5"/><text class="svgtext" x="350" y="130" text-anchor="middle">IR</text>
+        <rect id="nDec" class="node" x="270" y="185" width="160" height="40" rx="5"/><text class="svgtext" x="350" y="210" text-anchor="middle">DECODER</text>
+        <rect id="nT" class="node" x="145" y="260" width="110" height="40" rx="5"/><text class="svgtext" x="200" y="285" text-anchor="middle">T</text>
+        <rect id="nN" class="node" x="445" y="260" width="110" height="40" rx="5"/><text class="svgtext" x="500" y="285" text-anchor="middle">N</text>
+        <rect id="nALU" class="node" x="290" y="335" width="120" height="40" rx="5"/><text class="svgtext" x="350" y="360" text-anchor="middle">TERNARY ALU</text>
+        <rect id="nStack" class="node" x="285" y="397" width="130" height="30" rx="5"/><text class="svgsmall" x="350" y="417" text-anchor="middle">DATA STACK</text>
+        <rect id="nRet" class="node" x="545" y="145" width="130" height="40" rx="5"/><text class="svgtext" x="610" y="170" text-anchor="middle">RETURN STACK</text>
+        <rect id="nPC" class="node" x="565" y="55" width="90" height="40" rx="5"/><text class="svgtext" x="610" y="80" text-anchor="middle">PC</text>
+        <text id="pathText" class="svgsmall" x="20" y="415">idle</text>
+      </svg>
+    </div></div>
+    <div class="panel"><h2>ALU / CONDITION UNIT</h2><div class="body">
+      <table class="regtable" id="aluTable"></table>
+      <div class="spacer"></div><h3>LAST TRIT-BY-TRIT ADDITION</h3><div id="carryTrace" class="small">No ADD executed yet.</div>
+      <div class="spacer"></div><h3>CONDITION OF T</h3><div id="conditionBox" class="motor">ZERO</div>
+    </div></div>
+  </div>
+</section>
+
+<section id="memoryPage" class="page">
+  <div class="grid2">
+    <div class="panel"><h2>MEMORY INSPECTOR</h2><div class="body"><div class="row"><label class="small">Jump</label><input id="memJump" type="number" min="0" value="0"><button id="memJumpBtn">GO</button><button id="refreshMem">REFRESH</button></div><div class="spacer"></div><div class="memwrap"><table class="memtable"><thead><tr><th>ADDR</th><th>ADDR TRITS</th><th>DEC</th><th>VALUE TRITS</th><th>DECODE</th></tr></thead><tbody id="memoryBody"></tbody></table></div></div></div>
+    <div>
+      <div class="panel"><h2>ASSEMBLER / DISASSEMBLER</h2><div class="body"><textarea id="asmEditor" spellcheck="false">; T9 assembly demo
+LIT 3
+LIT 4
+ADD
+OUT 8
+HALT</textarea><div class="toolbar"><button id="assembleBtn">ASSEMBLE</button><button id="loadAsmBtn">ASSEMBLE + LOAD @ 0</button><button id="runAsmBtn" class="primary">LOAD + RUN</button></div><div id="asmError" class="errorbox"></div><textarea id="disasm" readonly style="min-height:210px"></textarea></div></div>
+      <div class="spacer"></div><div class="panel"><h2>RAW MEMORY IMAGE</h2><div class="body"><div class="toolbar"><button id="exportMem">EXPORT MEMORY</button><button id="importMemBtn">IMPORT MEMORY</button><input id="importMemFile" type="file" accept="application/json,.json" hidden></div><div class="small">Memory exports are JSON arrays of signed 9-trit integers.</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="ioPage" class="page">
+  <div class="panel"><h2>VIRTUAL I/O PORTS</h2><div class="body"><div class="io-grid">
+    <div class="io-card"><h4>PORT 2 — LED BANK</h4><div id="ledBank" class="leds"></div><div class="small">OUT 2 consumes a word; low balanced magnitude is displayed as a bit-like lamp pattern for convenience.</div></div>
+    <div class="io-card"><h4>PORT 3 — BEEPER</h4><div id="beeper" class="motor beeper">SILENT</div><div class="row"><button id="beepBtn">BEEP</button></div></div>
+    <div class="io-card"><h4>PORT 4 — TERNARY SWITCH</h4><div class="row"><button data-switch="-1">−</button><button data-switch="0">0</button><button data-switch="1">+</button></div><div id="switchState" class="motor">0</div></div>
+    <div class="io-card"><h4>PORT 5 — SENSOR</h4><input id="sensor" type="range" min="-100" max="100" value="0"><div id="sensorValue" class="motor">0</div></div>
+    <div class="io-card"><h4>PORT 6 — MOTOR DIRECTION</h4><div id="motorDir" class="motor">STOP</div><div class="small">negative = reverse · zero = stop · positive = forward</div></div>
+    <div class="io-card"><h4>PORT 7 — MOTOR POWER</h4><input id="motorPower" type="range" min="0" max="100" value="0" disabled><div id="motorPowerValue" class="motor">0%</div></div>
+    <div class="io-card"><h4>PORT 0 — KEY QUEUE</h4><textarea id="keyQueueText" style="min-height:90px" placeholder="Text queued for KEY / IN 0"></textarea><button id="queueTextBtn">QUEUE</button><div class="small" id="keyQueueCount">0 bytes queued</div></div>
+    <div class="io-card"><h4>PORT 8 — NUMBER OUTPUT</h4><div class="small">OUT 8 prints one signed machine word as decimal. The Forth word <code>.</code> is compiled as OUT 8.</div></div>
+  </div></div></div>
+</section>
+
+<section id="physicalPage" class="page">
+  <div class="grid2">
+    <div class="panel"><h2>PHYSICAL MACHINE — SIMULATED RAILS</h2><div class="body"><div class="row"><label>- rail <input id="vNeg" type="number" value="-5" step="0.1" style="width:80px"></label><label>0 rail <input id="vZero" type="number" value="0" step="0.1" style="width:80px"></label><label>+ rail <input id="vPos" type="number" value="5" step="0.1" style="width:80px"></label></div><div id="voltageRails"></div></div></div>
+    <div class="panel"><h2>TERNARY LOGIC LAB</h2><div class="body"><div class="logicrow"><label>A <select id="logicA"><option value="-1">−</option><option value="0" selected>0</option><option value="1">+</option></select></label><label>B <select id="logicB"><option value="-1">−</option><option value="0">0</option><option value="1" selected>+</option></select></label></div><div id="logicOut" class="logicout"></div></div></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="grid2">
+    <div class="panel"><h2>RETRO FRONT PANEL</h2><div class="body"><div class="small">T</div><div id="frontT" class="trit-lamps"></div><div class="small">N</div><div id="frontN" class="trit-lamps"></div><div class="small">PC</div><div id="frontPC" class="trit-lamps"></div><div class="front-controls"><button id="fpRun">RUN</button><button id="fpStop">STOP</button><button id="fpStep">STEP</button><button id="fpReset">RESET</button></div><h3>MANUAL WORD INPUT</h3><div id="manualSwitches" class="trit-switches"></div><div class="toolbar"><button id="manualEnter">ENTER → DATA STACK</button><span id="manualValue" class="badge"></span></div></div></div>
+    <div class="panel"><h2>SALVAGED KEYPAD EXPERIMENTS</h2><div class="body"><h3>CALCULATOR / FORTH KEYPAD</h3><div id="calcPad" class="keypad"></div><div class="spacer"></div><h3>TELEPHONE KEYPAD</h3><div id="phonePad" class="phonepad"></div><div class="small"># = Enter · * followed by 1..9 expands to a configurable Forth command.</div></div></div>
+  </div>
+</section>
+
+<section id="archPage" class="page">
+  <div class="grid2">
+    <div class="panel"><h2>ARCHITECTURE</h2><div class="body arch" id="archText"></div></div>
+    <div class="panel"><h2>SELF TESTS</h2><div class="body"><div class="toolbar"><button id="testBtn" class="primary">RUN SELF TESTS</button></div><div id="testSummary" class="small">Not run.</div><table class="testtable"><thead><tr><th>TEST</th><th>RESULT</th><th>DETAIL</th></tr></thead><tbody id="testBody"></tbody></table></div></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="panel"><h2>STATE / PERSISTENCE</h2><div class="body"><div class="toolbar"><button id="saveState">SAVE LOCAL</button><button id="loadState">LOAD LOCAL</button><button id="exportState">EXPORT STATE</button><button id="importStateBtn">IMPORT STATE</button><button id="exportLog">EXPORT TERMINAL LOG</button><input id="importStateFile" type="file" accept="application/json,.json" hidden></div><div class="small">Local save uses browser localStorage. Export/import uses JSON files.</div></div></div>
+</section>
+</main>
+<script>
+'use strict';
+
+// ---------- balanced ternary ----------
+class TernaryWord {
+  static WIDTH = 9;
+  static MOD = 3 ** 9;          // 19683
+  static MAX = (TernaryWord.MOD - 1) / 2; // 9841
+  static MIN = -TernaryWord.MAX;
+  static normalize(n){
+    if(!Number.isFinite(n)) throw new Error('Non-finite machine word');
+    n = Math.trunc(n);
+    const m = TernaryWord.MOD;
+    return ((n + TernaryWord.MAX) % m + m) % m - TernaryWord.MAX;
+  }
+  static toTrits(n,width=9){
+    n = TernaryWord.normalize(n);
+    const out=[];
+    for(let i=0;i<width;i++){
+      let r=((n%3)+3)%3;
+      if(r===2){r=-1; n=(n+1)/3;} else n=(n-r)/3;
+      out.push(r);
+    }
+    return out.reverse();
+  }
+  static fromTrits(trits){
+    if(!Array.isArray(trits)||!trits.length) throw new Error('Invalid trit array');
+    let n=0; for(const t of trits){if(![-1,0,1].includes(t)) throw new Error('Invalid trit '+t); n=n*3+t;} return TernaryWord.normalize(n);
+  }
+  static parse(s){
+    const chars=String(s).trim().replace(/\s+/g,'');
+    if(!chars) throw new Error('Empty ternary word');
+    const map={'-':-1,'−':-1,'0':0,'+':1};
+    const trits=[...chars].map(c=>{if(!(c in map)) throw new Error('Malformed balanced ternary: '+s); return map[c];});
+    if(trits.length>TernaryWord.WIDTH) throw new Error('Too many trits (max 9)');
+    return TernaryWord.fromTrits(trits);
+  }
+  static format(n,mode='symbols',width=9){
+    const trits=TernaryWord.toTrits(n,width);
+    if(mode==='numbers') return trits.map(t=>t===1?'+1':String(t)).join(' ');
+    if(mode==='unicode') return trits.map(t=>t<0?'−':t>0?'+':'0').join('');
+    return trits.map(t=>t<0?'-':t>0?'+':'0').join('');
+  }
+}
+window.integerToBalancedTernary=(v,w=9)=>TernaryWord.toTrits(v,w);
+window.balancedTernaryToInteger=t=>TernaryWord.fromTrits(t);
+window.normalizeWord=v=>TernaryWord.normalize(v);
+window.tritStringToArray=s=>TernaryWord.toTrits(TernaryWord.parse(s),String(s).replace(/\s/g,'').length);
+window.tritArrayToString=a=>a.map(t=>t<0?'-':t>0?'+':'0').join('');
+
+class Stack {
+  constructor(name,max=512){this.name=name;this.max=max;this.items=[];}
+  push(v){if(this.items.length>=this.max) throw new Error(this.name+' stack overflow');this.items.push(TernaryWord.normalize(v));}
+  pop(){if(!this.items.length) throw new Error(this.name+' stack underflow');return this.items.pop();}
+  peek(depth=0){const i=this.items.length-1-depth;if(i<0) throw new Error(this.name+' stack underflow');return this.items[i];}
+  clear(){this.items.length=0;}
+  get depth(){return this.items.length;}
+}
+
+class Memory {
+  constructor(size=2187){this.size=size;this.cells=new Int16Array(size);}
+  check(a){a=Math.trunc(a);if(a<0||a>=this.size) throw new Error('Invalid memory address '+a);return a;}
+  read(a){return this.cells[this.check(a)];}
+  write(a,v){this.cells[this.check(a)]=TernaryWord.normalize(v);}
+  clear(){this.cells.fill(0);}
+  dump(){return Array.from(this.cells);}
+  load(arr){if(!Array.isArray(arr))throw new Error('Memory image must be an array');this.clear();for(let i=0;i<Math.min(arr.length,this.size);i++)this.write(i,arr[i]);}
+}
+
+class ALU {
+  constructor(){this.last={op:'—',a:0,b:0,result:0,trace:[]};}
+  add(a,b){
+    const A=TernaryWord.toTrits(a).slice().reverse(),B=TernaryWord.toTrits(b).slice().reverse();
+    let carry=0; const sums=[],trace=[];
+    for(let i=0;i<9;i++){
+      const raw=A[i]+B[i]+carry; let s=raw,c=0;
+      if(raw>1){s=raw-3;c=1;} else if(raw<-1){s=raw+3;c=-1;}
+      trace.push({pos:i,a:A[i],b:B[i],cin:carry,sum:s,cout:c});sums.push(s);carry=c;
+    }
+    const result=TernaryWord.fromTrits(sums.reverse());this.last={op:'ADD',a,b,result,trace};return result;
+  }
+  sub(a,b){const result=this.add(a,-b);this.last.op='SUB';this.last.a=a;this.last.b=b;return result;}
+  neg(a){const result=TernaryWord.normalize(-a);this.last={op:'NEG',a,b:0,result,trace:[]};return result;}
+  mul(a,b){const result=TernaryWord.normalize(a*b);this.last={op:'MUL',a,b,result,trace:[]};return result;}
+  cmp(a,b){const result=a<b?-1:a>b?1:0;this.last={op:'CMP',a,b,result,trace:[]};return result;}
+  inc(a){return this.add(a,1)} dec(a){return this.sub(a,1)}
+  condition(v){return v<0?'NEGATIVE':v>0?'POSITIVE':'ZERO';}
+}
+
+// Exactly 27 3-trit opcodes: -13..+13.
+const OPCODE_NAMES=['NOP','LIT','DUP','DROP','SWAP','OVER','ADD','SUB','NEG','MUL','FETCH','STORE','BRANCH','ZBRANCH','NBRANCH','PBRANCH','CALL','EXIT','TOR','RFROM','EMIT','KEY','IN','OUT','HALT','CMP','RESERVED'];
+// Put NOP at code 0 so blank/zero-filled memory is electrically and logically inert.
+// Remaining names consume every other possible 3-trit code exactly once.
+const OPCODE_CODES=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1];
+const OPS={}; const CODE_TO_NAME=new Map();
+OPCODE_NAMES.forEach((name,i)=>{const code=OPCODE_CODES[i];OPS[name]=code;CODE_TO_NAME.set(code,name);});
+const OPERAND_OPS=new Set(['LIT','BRANCH','ZBRANCH','NBRANCH','PBRANCH','CALL','IN','OUT']);
+const ALIASES={'@':'FETCH','!':'STORE','0BRANCH':'ZBRANCH','>R':'TOR','R>':'RFROM','NEGATE':'NEG','+':'ADD','-':'SUB','*':'MUL'};
+
+class IOController {
+  constructor(term){this.term=term;this.keyQueue=[];this.ledValue=0;this.switchValue=0;this.sensor=0;this.motorDir=0;this.motorPower=0;this.onChange=null;}
+  reset(){this.keyQueue=[];this.ledValue=0;this.switchValue=0;this.sensor=0;this.motorDir=0;this.motorPower=0;this.changed();}
+  changed(){if(this.onChange)this.onChange();}
+  queueText(s){for(const ch of String(s))this.keyQueue.push(ch.charCodeAt(0));this.changed();}
+  input(port){
+    switch(port){case 0:return this.keyQueue.length?this.keyQueue.shift():0;case 4:return this.switchValue;case 5:return this.sensor;default:return 0;}
+  }
+  output(port,v){
+    v=TernaryWord.normalize(v);
+    switch(port){
+      case 1:this.term.write(String.fromCharCode((v%256+256)%256));break;
+      case 2:this.ledValue=v;break;
+      case 3:this.beep(v);break;
+      case 6:this.motorDir=v<0?-1:v>0?1:0;break;
+      case 7:this.motorPower=Math.max(0,Math.min(100,Math.abs(v)));break;
+      case 8:this.term.write(String(v)+' ');break;
+    }
+    this.changed();
+  }
+  beep(v=1){this.term.signalBeep();this.changed();}
+  snapshot(){return {keyQueue:[...this.keyQueue],ledValue:this.ledValue,switchValue:this.switchValue,sensor:this.sensor,motorDir:this.motorDir,motorPower:this.motorPower};}
+  restore(s={}){Object.assign(this,s);this.keyQueue=Array.isArray(s.keyQueue)?s.keyQueue:[];this.changed();}
+}
+
+class Terminal {
+  constructor(el){this.el=el;this.log='';this.beepCallback=null;}
+  write(s){this.log+=String(s);this.render();}
+  writeln(s=''){this.write(String(s)+'\n');}
+  clear(){this.log='';this.render();}
+  render(){this.el.textContent=this.log;this.el.scrollTop=this.el.scrollHeight;}
+  signalBeep(){if(this.beepCallback)this.beepCallback();}
+}
+
+class CPU {
+  constructor(memory,io){this.memory=memory;this.io=io;this.alu=new ALU();this.data=new Stack('Data');this.ret=new Stack('Return');this.reset();}
+  reset(){this.pc=0;this.ir=OPS.NOP;this.cycle=0;this.halted=false;this.phase='FETCH';this.pendingOp=null;this.lastPath='idle';this.data.clear();this.ret.clear();}
+  get T(){return this.data.depth?this.data.peek(0):0} get N(){return this.data.depth>1?this.data.peek(1):0}
+  get DSP(){return this.data.depth} get RSP(){return this.ret.depth}
+  fetch(){if(this.halted)return;this.ir=this.memory.read(this.pc);this.pc++;this.pendingOp=this.ir;this.phase='EXECUTE';this.cycle++;this.lastPath='MEMORY → IR';}
+  operand(){const v=this.memory.read(this.pc);this.pc++;return v;}
+  execute(){
+    if(this.halted)return; const code=this.pendingOp, name=CODE_TO_NAME.get(code);
+    if(!name||name==='RESERVED')throw new Error('Invalid opcode '+code+' at '+(this.pc-1));
+    const d=this.data,r=this.ret,a=this.alu;let x,y,target,port;
+    switch(name){
+      case 'NOP':this.lastPath='decoder → idle';break;
+      case 'LIT':d.push(this.operand());this.lastPath='MEMORY → T';break;
+      case 'DUP':d.push(d.peek());this.lastPath='T → stack';break;
+      case 'DROP':d.pop();this.lastPath='T → discard';break;
+      case 'SWAP':x=d.pop();y=d.pop();d.push(x);d.push(y);this.lastPath='T ↔ N';break;
+      case 'OVER':d.push(d.peek(1));this.lastPath='N → T';break;
+      case 'ADD':x=d.pop();y=d.pop();d.push(a.add(y,x));this.lastPath='T + N → ALU → T';break;
+      case 'SUB':x=d.pop();y=d.pop();d.push(a.sub(y,x));this.lastPath='N - T → ALU → T';break;
+      case 'NEG':d.push(a.neg(d.pop()));this.lastPath='T → NEG → T';break;
+      case 'MUL':x=d.pop();y=d.pop();d.push(a.mul(y,x));this.lastPath='T × N → ALU → T';break;
+      case 'CMP':x=d.pop();y=d.pop();d.push(a.cmp(y,x));this.lastPath='T,N → CMP → T';break;
+      case 'FETCH':x=d.pop();d.push(this.memory.read(x));this.lastPath='T(addr) → MEMORY → T';break;
+      case 'STORE':x=d.pop();y=d.pop();this.memory.write(x,y);this.lastPath='N(value),T(addr) → MEMORY';break;
+      case 'BRANCH':this.pc=this.memory.check(this.operand());this.lastPath='operand → PC';break;
+      case 'ZBRANCH':target=this.operand();x=d.pop();if(x===0)this.pc=this.memory.check(target);this.lastPath='T ZERO? → PC';break;
+      case 'NBRANCH':target=this.operand();x=d.pop();if(x<0)this.pc=this.memory.check(target);this.lastPath='T NEGATIVE? → PC';break;
+      case 'PBRANCH':target=this.operand();x=d.pop();if(x>0)this.pc=this.memory.check(target);this.lastPath='T POSITIVE? → PC';break;
+      case 'CALL':target=this.operand();r.push(this.pc);this.pc=this.memory.check(target);this.lastPath='PC → RSTACK; operand → PC';break;
+      case 'EXIT':x=r.pop();if(x===-1){this.halted=true;}else this.pc=this.memory.check(x);this.lastPath='RSTACK → PC';break;
+      case 'TOR':r.push(d.pop());this.lastPath='T → RSTACK';break;
+      case 'RFROM':d.push(r.pop());this.lastPath='RSTACK → T';break;
+      case 'EMIT':this.io.output(1,d.pop());this.lastPath='T → terminal';break;
+      case 'KEY':d.push(this.io.input(0));this.lastPath='keyboard → T';break;
+      case 'IN':port=this.operand();d.push(this.io.input(port));this.lastPath='PORT '+port+' → T';break;
+      case 'OUT':port=this.operand();this.io.output(port,d.pop());this.lastPath='T → PORT '+port;break;
+      case 'HALT':this.halted=true;this.lastPath='decoder → HALT';break;
+    }
+    this.phase='FETCH';this.pendingOp=null;this.cycle++;
+  }
+  stepCycle(){if(this.halted)return;if(this.phase==='FETCH')this.fetch();else this.execute();}
+  stepInstruction(){if(this.halted)return; if(this.phase==='EXECUTE')this.execute(); else {this.fetch();this.execute();}}
+  runBurst(n){let i=0;while(!this.halted&&i<n){this.stepInstruction();i++;}return i;}
+  call(addr,max=100000){this.ret.push(-1);this.pc=this.memory.check(addr);this.halted=false;this.phase='FETCH';let n=0;while(!this.halted&&n<max){this.stepInstruction();n++;}if(n>=max){this.halted=true;throw new Error('Runaway execution limit reached');}this.halted=false;this.phase='FETCH';return n;}
+  snapshot(){return {pc:this.pc,ir:this.ir,cycle:this.cycle,halted:this.halted,phase:this.phase,data:[...this.data.items],ret:[...this.ret.items]};}
+  restore(s){this.pc=s.pc||0;this.ir=s.ir??OPS.NOP;this.cycle=s.cycle||0;this.halted=!!s.halted;this.phase=s.phase||'FETCH';this.pendingOp=null;this.data.items=(s.data||[]).map(TernaryWord.normalize);this.ret.items=(s.ret||[]).map(TernaryWord.normalize);}
+}
+
+class Assembler {
+  constructor(memory){this.memory=memory;}
+  parseNumber(s,labels={}){
+    if(s in labels)return labels[s];
+    if(/^[-0+−]{2,9}$/.test(s)&&/[+−]/.test(s)) return TernaryWord.parse(s);
+    const n=Number(s);if(!Number.isInteger(n))throw new Error('Expected integer/address, got '+s);return TernaryWord.normalize(n);
+  }
+  assemble(src,origin=0){
+    const lines=src.split(/\r?\n/),labels={},clean=[];let pc=origin;
+    for(let i=0;i<lines.length;i++){
+      let line=lines[i].replace(/;.*/,'').trim();if(!line)continue;
+      const labelMatch=line.match(/^([A-Za-z_][\w]*):\s*(.*)$/);if(labelMatch){labels[labelMatch[1]]=pc;line=labelMatch[2].trim();if(!line)continue;}
+      const parts=line.split(/\s+/);const raw=parts[0].toUpperCase();const op=ALIASES[raw]||raw;if(!(op in OPS)||op==='RESERVED')throw new Error('Line '+(i+1)+': unknown opcode '+raw);
+      clean.push({line:i+1,op,arg:parts[1]});pc+=1+(OPERAND_OPS.has(op)?1:0);
+    }
+    const words=[];for(const item of clean){words.push(OPS[item.op]);if(OPERAND_OPS.has(item.op)){if(item.arg==null)throw new Error('Line '+item.line+': '+item.op+' requires operand');words.push(this.parseNumber(item.arg,labels));}}
+    return {origin,words,labels};
+  }
+  load(obj){obj.words.forEach((w,i)=>this.memory.write(obj.origin+i,w));}
+}
+
+class Disassembler {
+  constructor(memory){this.memory=memory;}
+  one(addr){const code=this.memory.read(addr),name=CODE_TO_NAME.get(code)||'INVALID';let text=name,size=1;if(OPERAND_OPS.has(name)){const arg=this.memory.read(addr+1);text+=' '+arg;size=2;}return {addr,code,name,text,size};}
+  range(start,count=64){const out=[];let pc=start,end=Math.min(this.memory.size,start+count);while(pc<end){const x=this.one(pc);out.push(x);pc+=x.size;}return out;}
+}
+
+class ForthKernel {
+  constructor(cpu,mem,asm,term){this.cpu=cpu;this.mem=mem;this.asm=asm;this.term=term;this.dict=new Map();this.here=384;this.varHere=1792;this.compiling=false;this.currentName='';this.currentAddr=0;this.control=[];this.installPrimitives();this.buildKernel();}
+  installPrimitives(){
+    const mapping={
+      'DUP':'DUP','DROP':'DROP','SWAP':'SWAP','OVER':'OVER','+':'ADD','-':'SUB','NEGATE':'NEG','NEG':'NEG','*':'MUL','@':'FETCH','!':'STORE','>R':'TOR','R>':'RFROM','EMIT':'EMIT','KEY':'KEY'
+    };
+    for(const [w,op] of Object.entries(mapping))this.dict.set(w,{kind:'primitive',op});
+    this.dict.set('HALT',{kind:'primitive',op:'HALT'});this.dict.set('BYE',{kind:'primitive',op:'HALT'});
+  }
+  emit(op,arg){this.mem.write(this.here++,OPS[op]);if(arg!==undefined)this.mem.write(this.here++,arg);}
+  compileDef(name,emitter){const addr=this.here;emitter();this.emit('EXIT');this.dict.set(name,{kind:'colon',addr});return addr;}
+  buildKernel(){
+    this.compileDef('ROT',()=>{this.emit('TOR');this.emit('SWAP');this.emit('RFROM');this.emit('SWAP');});
+    this.compileDef('CR',()=>{this.emit('LIT',10);this.emit('EMIT');});
+    this.compileDef('SPACE',()=>{this.emit('LIT',32);this.emit('EMIT');});
+    this.compileDef('.',()=>{this.emit('OUT',8);});
+    this.installMacroWord('0=', 'ZBRANCH');this.installMacroWord('0<','NBRANCH');this.installMacroWord('0>','PBRANCH');
+    this.dict.set('=',{kind:'macroCompare',branch:'ZBRANCH'});this.dict.set('<',{kind:'macroCompare',branch:'NBRANCH'});this.dict.set('>',{kind:'macroCompare',branch:'PBRANCH'});
+  }
+  installMacroWord(name,branch){this.dict.set(name,{kind:'macroBool',branch});}
+  compileBool(branch){
+    this.emit(branch,0);const yesPatch=this.here-1;this.emit('LIT',0);this.emit('BRANCH',0);const endPatch=this.here-1;this.mem.write(yesPatch,this.here);this.emit('LIT',-1);this.mem.write(endPatch,this.here);
+  }
+  compileWord(word){
+    if(word.kind==='primitive'){this.emit(word.op);return;}
+    if(word.kind==='colon'){this.emit('CALL',word.addr);return;}
+    if(word.kind==='constant'){this.emit('LIT',word.value);return;}
+    if(word.kind==='variable'){this.emit('LIT',word.addr);return;}
+    if(word.kind==='macroBool'){this.compileBool(word.branch);return;}
+    if(word.kind==='macroCompare'){this.emit('CMP');this.compileBool(word.branch);return;}
+    throw new Error('Cannot compile word');
+  }
+  executeWord(word){
+    if(word.kind==='primitive'){
+      const scratch=256;this.mem.write(scratch,OPS[word.op]);this.mem.write(scratch+1,OPS.EXIT);this.cpu.call(scratch);return;
+    }
+    if(word.kind==='colon'){this.cpu.call(word.addr);return;}
+    if(word.kind==='constant'){this.cpu.data.push(word.value);return;}
+    if(word.kind==='variable'){this.cpu.data.push(word.addr);return;}
+    if(word.kind==='macroBool'||word.kind==='macroCompare'){
+      const save=this.here;const scratch=256;let p=scratch;const emit=(op,arg)=>{this.mem.write(p++,OPS[op]);if(arg!==undefined)this.mem.write(p++,arg);};
+      if(word.kind==='macroCompare')emit('CMP');
+      emit(word.branch,0);const yes=p-1;emit('LIT',0);emit('BRANCH',0);const end=p-1;this.mem.write(yes,p);emit('LIT',-1);this.mem.write(end,p);emit('EXIT');this.cpu.call(scratch);this.here=save;return;
+    }
+  }
+  numberToken(tok){if(/^[-+]?\d+$/.test(tok))return TernaryWord.normalize(Number(tok));if(/^[-0+−]{2,9}$/.test(tok)&&/[+−]/.test(tok))return TernaryWord.parse(tok);return null;}
+  tokenize(line){return line.replace(/\\.*$/,'').trim().split(/\s+/).filter(Boolean);}
+  eval(line){
+    const tokens=this.tokenize(line);let i=0;
+    while(i<tokens.length){let tok=tokens[i++];const upper=tok.toUpperCase();
+      if(!this.compiling){
+        if(upper===':'){if(i>=tokens.length)throw new Error('Expected name after :');this.compiling=true;this.currentName=tokens[i++].toUpperCase();this.currentAddr=this.here;this.control=[];continue;}
+        if(upper==='VARIABLE'){if(i>=tokens.length)throw new Error('Expected name after VARIABLE');const name=tokens[i++].toUpperCase();const addr=this.varHere++;this.mem.write(addr,0);this.dict.set(name,{kind:'variable',addr});continue;}
+        if(upper==='CONSTANT'){if(i>=tokens.length)throw new Error('Expected name after CONSTANT');const name=tokens[i++].toUpperCase();const v=this.cpu.data.pop();this.dict.set(name,{kind:'constant',value:v});continue;}
+        if(upper==='WORDS'){this.term.writeln([...this.dict.keys()].sort().join(' '));continue;}
+        if(upper==='DEPTH'){this.cpu.data.push(this.cpu.data.depth);continue;}
+        if(upper==='.' && this.dict.has('.')){this.executeWord(this.dict.get('.'));continue;}
+        const n=this.numberToken(tok);if(n!==null){this.cpu.data.push(n);continue;}
+        const word=this.dict.get(upper);if(!word)throw new Error('Unknown Forth word: '+tok);this.executeWord(word);
+      }else{
+        if(upper===';'){if(this.control.length)throw new Error('Unresolved control structure');this.emit('EXIT');this.dict.set(this.currentName,{kind:'colon',addr:this.currentAddr});this.compiling=false;this.currentName='';continue;}
+        if(upper===this.currentName){this.emit('CALL',this.currentAddr);continue;}
+        if(upper==='IF'){this.emit('ZBRANCH',0);this.control.push({type:'IF',patch:this.here-1});continue;}
+        if(upper==='ELSE'){const c=this.control.pop();if(!c||c.type!=='IF')throw new Error('ELSE without IF');this.emit('BRANCH',0);const p=this.here-1;this.mem.write(c.patch,this.here);this.control.push({type:'ELSE',patch:p});continue;}
+        if(upper==='THEN'){const c=this.control.pop();if(!c||!['IF','ELSE'].includes(c.type))throw new Error('THEN without IF/ELSE');this.mem.write(c.patch,this.here);continue;}
+        if(upper==='BEGIN'){this.control.push({type:'BEGIN',addr:this.here});continue;}
+        if(upper==='UNTIL'){const c=this.control.pop();if(!c||c.type!=='BEGIN')throw new Error('UNTIL without BEGIN');this.emit('ZBRANCH',c.addr);continue;}
+        if(upper==='AGAIN'){const c=this.control.pop();if(!c||c.type!=='BEGIN')throw new Error('AGAIN without BEGIN');this.emit('BRANCH',c.addr);continue;}
+        const n=this.numberToken(tok);if(n!==null){this.emit('LIT',n);continue;}
+        const word=this.dict.get(upper);if(!word)throw new Error('Unknown Forth word while compiling: '+tok);this.compileWord(word);
+      }
+    }
+  }
+  resetDictionary(){this.dict.clear();this.here=384;this.varHere=1792;this.compiling=false;this.control=[];for(let i=384;i<this.mem.size;i++)this.mem.write(i,0);this.installPrimitives();this.buildKernel();}
+  snapshot(){return {here:this.here,varHere:this.varHere,dict:[...this.dict.entries()]};}
+  restore(s){this.here=s.here;this.varHere=s.varHere;this.dict=new Map(s.dict);this.compiling=false;this.control=[];}
+}
+
+// ---------- app ----------
+const $=sel=>document.querySelector(sel), $$=sel=>[...document.querySelectorAll(sel)];
+const terminal=new Terminal($('#terminal'));const memory=new Memory(2187);const io=new IOController(terminal);const cpu=new CPU(memory,io);const assembler=new Assembler(memory);const disassembler=new Disassembler(memory);const forth=new ForthKernel(cpu,memory,assembler,terminal);
+let tritMode='symbols',running=false,raf=null,history=[],historyPos=0,lastAsm=null,manualTrits=Array(9).fill(0),phoneModifier=false;
+terminal.beepCallback=()=>{const b=$('#beeper');b.textContent='BEEP';b.classList.add('on');setTimeout(()=>{b.classList.remove('on');b.textContent='SILENT'},450)};
+io.onChange=()=>updateIO();
+
+const examples={
+  'Arithmetic':'3 4 + .',
+  'Stack manipulation':'1 2 3 DUP SWAP',
+  'Square definition':': SQUARE DUP * ; 12 SQUARE .',
+  'Countdown':': COUNTDOWN BEGIN DUP . 1 - DUP 0= UNTIL DROP ; 5 COUNTDOWN',
+  'Factorial (recursive)':': FACT DUP 1 > IF DUP 1 - FACT * ELSE DROP 1 THEN ; 6 FACT .',
+  'Variable':'VARIABLE X 42 X ! X @ .',
+  'Ternary sign':'-7 0< . 0 0= . 9 0> .',
+  'Three-way branch demo':': SIGN DUP 0< IF DROP 78 EMIT ELSE DUP 0= IF DROP 90 EMIT ELSE DROP 80 EMIT THEN THEN ; -2 SIGN SPACE 0 SIGN SPACE 3 SIGN CR',
+  'Virtual motor':'-1 OUT6 0 OUT6 1 OUT6',
+  'LED output':'17 OUT2'
+};
+// I/O convenience colon words generated directly into the machine dictionary.
+function addOutWord(name,port){forth.compileDef(name,()=>forth.emit('OUT',port));}
+addOutWord('OUT2',2);addOutWord('OUT3',3);addOutWord('OUT6',6);addOutWord('OUT7',7);
+function addInWord(name,port){forth.compileDef(name,()=>forth.emit('IN',port));}
+addInWord('IN4',4);addInWord('IN5',5);
+
+function bootBanner(){terminal.writeln('TERNARY FORTH');terminal.writeln('T9 · 9-trit balanced-ternary computer');terminal.writeln('range -9841..+9841 · 27 ternary opcodes · two stacks');terminal.writeln('Type 3 4 + .   or   : SQUARE DUP * ;');terminal.writeln('ok');}
+bootBanner();
+
+function executeTerminal(line){line=line.trim();if(!line)return;terminal.writeln('› '+line);history.push(line);historyPos=history.length;try{forth.eval(line);if(!forth.compiling)terminal.writeln('ok');else terminal.writeln('... compiling '+forth.currentName);}catch(e){terminal.writeln('ERROR: '+e.message);cpu.halted=false;cpu.phase='FETCH';}updateAll();}
+
+function setRunning(v){running=v;if(v){cpu.halted=false;loop();}else if(raf){cancelAnimationFrame(raf);raf=null;}updateStatus();}
+function loop(){if(!running)return;try{const n=Number($('#speed').value);cpu.runBurst(n);if(cpu.halted)running=false;}catch(e){terminal.writeln('CPU ERROR: '+e.message);running=false;}updateAll(false);if(running)raf=requestAnimationFrame(loop);else updateStatus();}
+function breakExecution(){setRunning(false);cpu.halted=true;terminal.writeln('BREAK');updateAll();}
+
+function regRow(name,val,raw=false){const dec=raw?String(val):String(TernaryWord.normalize(val));const tr=raw?'—':TernaryWord.format(val,tritMode);return `<tr><td>${name}</td><td>${dec}</td><td class="trits">${tr}</td></tr>`;}
+function updateRegisters(){
+  $('#regTable').innerHTML='<tr><th>REG</th><th>DEC</th><th>TERNARY</th></tr>'+regRow('PC',cpu.pc)+regRow('IR',cpu.ir)+regRow('T',cpu.T)+regRow('N',cpu.N)+regRow('DSP',cpu.DSP)+regRow('RSP',cpu.RSP)+regRow('CYCLE',cpu.cycle)+`<tr><td>PHASE</td><td colspan="2">${cpu.phase}</td></tr><tr><td>HALTED</td><td colspan="2">${cpu.halted}</td></tr>`;
+  const l=cpu.alu.last;$('#aluTable').innerHTML='<tr><th>FIELD</th><th>DEC</th><th>TERNARY</th></tr>'+regRow('A',l.a)+regRow('B',l.b)+regRow('RESULT',l.result)+`<tr><td>OP</td><td colspan="2">${l.op}</td></tr>`;
+  $('#conditionBox').textContent=cpu.alu.condition(cpu.T);$('#conditionBox').className='motor '+(cpu.T<0?'negative':cpu.T>0?'positive':'zero');
+  $('#carryTrace').innerHTML=l.trace.length?'<table class="regtable"><tr><th>TRIT</th><th>A</th><th>B</th><th>Cin</th><th>SUM</th><th>Cout</th></tr>'+l.trace.map(x=>`<tr><td>${x.pos}</td><td>${fmtT(x.a)}</td><td>${fmtT(x.b)}</td><td>${fmtT(x.cin)}</td><td>${fmtT(x.sum)}</td><td>${fmtT(x.cout)}</td></tr>`).join('')+'</table>':'No ADD executed yet.';
+}
+function fmtT(t){return t<0?'−':t>0?'+':'0'}
+function updateStacks(){
+  const render=(stack,el,isData)=>{const items=[...stack.items].reverse();el.innerHTML=items.length?items.map((v,i)=>`<div class="stackitem ${i===0?'top':i===1&&isData?'next':''}"><span>${i===0?(isData?'T':'TOP'):i===1&&isData?'N':'+'+i}</span><span class="trits">${TernaryWord.format(v,tritMode)}</span><span>${v}</span></div>`).join(''):'<div class="small">empty</div>';};render(cpu.data,$('#dataStack'),true);render(cpu.ret,$('#returnStack'),false);
+}
+function updateStatus(){const p=$('#statusPill');p.className='status-pill '+(running?'run':cpu.halted?'halt':'');p.textContent=running?'RUNNING':cpu.halted?'HALTED':'READY';}
+function updateDatapath(){$$('#datapath .active').forEach(x=>x.classList.remove('active'));const path=cpu.lastPath;$('#pathText').textContent=path;const ids=[];if(path.includes('MEMORY'))ids.push('nMem','wMemIR');if(path.includes('IR'))ids.push('nIR','wIRDec');if(path.includes('decoder'))ids.push('nDec');if(path.includes('T'))ids.push('nT','wTAlu');if(path.includes('N'))ids.push('nN','wNAlu');if(path.includes('ALU')||path.includes('CMP')||path.includes('NEG'))ids.push('nALU','wAluStack');if(path.includes('RSTACK'))ids.push('nRet','wRetPC');if(path.includes('PC'))ids.push('nPC');ids.forEach(id=>{const e=$('#'+id);if(e)e.classList.add('active')});}
+function tritLampHTML(v){return TernaryWord.toTrits(v).map(t=>`<div class="trit-lamp ${t<0?'n':t>0?'p':'z'}">${fmtT(t)}</div>`).join('')}
+function updatePhysical(){
+  $('#frontT').innerHTML=tritLampHTML(cpu.T);$('#frontN').innerHTML=tritLampHTML(cpu.N);$('#frontPC').innerHTML=tritLampHTML(cpu.pc);
+  const vn=Number($('#vNeg').value),vz=Number($('#vZero').value),vp=Number($('#vPos').value);const rows=[['T',cpu.T],['N',cpu.N],['PC',cpu.pc],['ALU',cpu.alu.last.result],['IR',cpu.ir]];
+  $('#voltageRails').innerHTML=rows.map(([n,v])=>`<div class="rail"><span>${n}</span><div class="rail-trits">${TernaryWord.toTrits(v).map(t=>`<div class="volt">${fmtT(t)}<br>${t<0?vn:t>0?vp:vz}V</div>`).join('')}</div></div>`).join('');
+}
+function updateLogic(){const a=Number($('#logicA').value),b=Number($('#logicB').value);let raw=a+b,carry=0,sum=raw;if(raw>1){sum-=3;carry=1}else if(raw<-1){sum+=3;carry=-1}const cells=[['NEG A',fmtT(-a)],['MIN',fmtT(Math.min(a,b))],['MAX',fmtT(Math.max(a,b))],['COMPARE',fmtT(a<b?-1:a>b?1:0)],['SUM',fmtT(sum)],['CARRY',fmtT(carry)]];$('#logicOut').innerHTML=cells.map(([k,v])=>`<div class="logiccell"><span>${k}</span><b>${v}</b></div>`).join('');}
+function updateIO(){
+  $('#ledBank').innerHTML=Array.from({length:9},(_,i)=>`<div class="led ${((Math.abs(io.ledValue)>>i)&1)?'on':''}"></div>`).join('');$('#switchState').textContent=fmtT(io.switchValue);$('#sensorValue').textContent=io.sensor;$('#sensor').value=io.sensor;$('#motorDir').textContent=io.motorDir<0?'REVERSE':io.motorDir>0?'FORWARD':'STOP';$('#motorPower').value=io.motorPower;$('#motorPowerValue').textContent=io.motorPower+'%';$('#keyQueueCount').textContent=io.keyQueue.length+' bytes queued';
+}
+function updateMemory(start=null){if(start===null)start=Math.max(0,Math.min(memory.size-1,Number($('#memJump').value)||0));const end=Math.min(memory.size,start+180);let html='';for(let a=start;a<end;a++){const v=memory.read(a),d=disassembler.one(a);html+=`<tr data-addr="${a}" class="${a===cpu.pc?'highlight':''}"><td>${a}</td><td class="trits">${TernaryWord.format(a,tritMode)}</td><td><input data-memedit="${a}" value="${v}"></td><td class="trits">${TernaryWord.format(v,tritMode)}</td><td>${CODE_TO_NAME.has(v)?d.text:''}</td></tr>`;}$('#memoryBody').innerHTML=html;}
+function updateAll(mem=true){updateRegisters();updateStacks();updateStatus();updateDatapath();updatePhysical();updateIO();if(mem&&$('#memoryPage').classList.contains('active'))updateMemory();}
+
+function hardReset(){setRunning(false);memory.clear();cpu.reset();forth.resetDictionary();addOutWord('OUT2',2);addOutWord('OUT3',3);addOutWord('OUT6',6);addOutWord('OUT7',7);addInWord('IN4',4);addInWord('IN5',5);io.reset();terminal.clear();bootBanner();updateAll();}
+
+// memory edit delegation
+$('#memoryBody').addEventListener('change',e=>{if(e.target.dataset.memedit){try{const a=Number(e.target.dataset.memedit);let s=e.target.value.trim(),v=/^[-0+−]{2,9}$/.test(s)&&/[+−]/.test(s)?TernaryWord.parse(s):Number(s);memory.write(a,v);updateMemory(a-a%180);}catch(err){alert(err.message)}}});
+
+// tabs
+$$('.tab').forEach(t=>t.onclick=()=>{$$('.tab').forEach(x=>x.classList.remove('active'));$$('.page').forEach(x=>x.classList.remove('active'));t.classList.add('active');$('#'+t.dataset.page).classList.add('active');if(t.dataset.page==='memoryPage')updateMemory();updateAll(false)});
+
+$('#termInput').addEventListener('keydown',e=>{if(e.key==='Enter'){const v=e.target.value;e.target.value='';executeTerminal(v)}else if(e.key==='ArrowUp'){e.preventDefault();if(historyPos>0)e.target.value=history[--historyPos]||''}else if(e.key==='ArrowDown'){e.preventDefault();if(historyPos<history.length)e.target.value=history[++historyPos]||''}else if(e.ctrlKey&&e.key.toLowerCase()==='c'){e.preventDefault();breakExecution()}});
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key.toLowerCase()==='c'&&e.target!==$('#termInput')){e.preventDefault();breakExecution()}});
+$('#clearTerm').onclick=()=>terminal.clear();$('#queueKey').onclick=()=>{io.queueText($('#termInput').value)};
+
+$('#runBtn').onclick=()=>setRunning(true);$('#pauseBtn').onclick=()=>setRunning(false);$('#stepBtn').onclick=()=>{setRunning(false);try{cpu.stepInstruction()}catch(e){terminal.writeln('CPU ERROR: '+e.message)}updateAll()};$('#cycleBtn').onclick=()=>{setRunning(false);try{cpu.stepCycle()}catch(e){terminal.writeln('CPU ERROR: '+e.message)}updateAll()};
+$$('[data-burst]').forEach(b=>b.onclick=()=>{setRunning(false);try{cpu.halted=false;cpu.runBurst(Number(b.dataset.burst))}catch(e){terminal.writeln('CPU ERROR: '+e.message)}updateAll()});
+$('#resetBtn').onclick=()=>{setRunning(false);cpu.reset();updateAll()};$('#hardResetBtn').onclick=()=>{if(confirm('Hard reset memory, Forth dictionary, I/O and terminal?'))hardReset()};$('#breakBtn').onclick=breakExecution;$('#speed').oninput=e=>$('#speedLabel').textContent=e.target.value+' instr/frame';$('#tritMode').onchange=e=>{tritMode=e.target.value;updateAll();if($('#memoryPage').classList.contains('active'))updateMemory()};
+
+// examples
+for(const k of Object.keys(examples))$('#exampleSelect').insertAdjacentHTML('beforeend',`<option>${k}</option>`);$('#loadExample').onclick=()=>{$('#termInput').value=examples[$('#exampleSelect').value].replace(/\n/g,' ');$('#termInput').focus()};
+
+// assembler
+function showAsm(){try{lastAsm=assembler.assemble($('#asmEditor').value,0);$('#asmError').style.display='none';const temp=new Int16Array(memory.cells);lastAsm.words.forEach((w,i)=>temp[i]=w);const lines=[];let pc=0;while(pc<lastAsm.words.length){const code=temp[pc],name=CODE_TO_NAME.get(code)||'INVALID';let text=name,size=1;if(OPERAND_OPS.has(name)){text+=' '+temp[pc+1];size=2;}lines.push(String(pc).padStart(4)+'  '+TernaryWord.format(code,'symbols')+'  '+text);pc+=size;}$('#disasm').value=lines.join('\n');return true}catch(e){$('#asmError').textContent=e.message;$('#asmError').style.display='block';return false}}
+$('#assembleBtn').onclick=showAsm;$('#loadAsmBtn').onclick=()=>{if(showAsm()){assembler.load(lastAsm);cpu.pc=0;cpu.halted=false;cpu.phase='FETCH';updateMemory(0);updateAll(false)}};$('#runAsmBtn').onclick=()=>{if(showAsm()){assembler.load(lastAsm);cpu.reset();cpu.pc=0;setRunning(true)}};
+$('#memJumpBtn').onclick=()=>updateMemory();$('#refreshMem').onclick=()=>updateMemory();
+
+// I/O UI
+$$('[data-switch]').forEach(b=>b.onclick=()=>{io.switchValue=Number(b.dataset.switch);io.changed()});$('#sensor').oninput=e=>{io.sensor=Number(e.target.value);io.changed()};$('#beepBtn').onclick=()=>io.beep(1);$('#queueTextBtn').onclick=()=>{io.queueText($('#keyQueueText').value);$('#keyQueueText').value=''};
+
+// physical
+['#vNeg','#vZero','#vPos'].forEach(s=>$(s).oninput=updatePhysical);$('#logicA').onchange=updateLogic;$('#logicB').onchange=updateLogic;
+function buildManual(){const el=$('#manualSwitches');el.innerHTML='';manualTrits.forEach((t,i)=>{const b=document.createElement('button');b.className='trit-switch';b.textContent=fmtT(t);b.onclick=()=>{manualTrits[i]=manualTrits[i]===-1?0:manualTrits[i]===0?1:-1;buildManual()};el.appendChild(b)});const v=TernaryWord.fromTrits(manualTrits);$('#manualValue').textContent=v+' / '+TernaryWord.format(v)}
+buildManual();$('#manualEnter').onclick=()=>{cpu.data.push(TernaryWord.fromTrits(manualTrits));updateAll()};$('#fpRun').onclick=()=>setRunning(true);$('#fpStop').onclick=()=>setRunning(false);$('#fpStep').onclick=()=>$('#stepBtn').click();$('#fpReset').onclick=()=>$('#resetBtn').click();
+
+// keypad
+const calcKeys=['DUP','DROP','SWAP','OVER','7','8','9','+','4','5','6','-','1','2','3','*','0','.',':','ENTER'];
+function injectKey(k){const inp=$('#termInput');if(k==='ENTER'){const v=inp.value;inp.value='';executeTerminal(v);return}if(['DUP','DROP','SWAP','OVER'].includes(k))inp.value+=(inp.value?' ':'')+k+' ';else if(['+','-','*','.'].includes(k))inp.value+=' '+k+' ';else if(k===':')inp.value+=(inp.value?' ':'')+': ';else inp.value+=k;inp.focus()}
+calcKeys.forEach(k=>{const b=document.createElement('button');b.textContent=k;b.onclick=()=>injectKey(k);$('#calcPad').appendChild(b)});
+const phoneMap={'1':'DUP','2':'DROP','3':'SWAP','4':'+','5':'-','6':'*','7':'@','8':'!','9':'.'};['1','2','3','4','5','6','7','8','9','*','0','#'].forEach(k=>{const b=document.createElement('button');b.textContent=k;b.onclick=()=>{if(k==='*'){phoneModifier=true;return}if(k==='#'){injectKey('ENTER');phoneModifier=false;return}if(phoneModifier&&phoneMap[k]){injectKey(phoneMap[k]);phoneModifier=false}else injectKey(k)};$('#phonePad').appendChild(b)});
+
+// persistence/download
+function download(name,data,type='application/json'){const blob=new Blob([data],{type}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+function appState(){return {version:1,memory:memory.dump(),cpu:cpu.snapshot(),forth:forth.snapshot(),io:io.snapshot(),terminal:terminal.log};}
+function restoreState(s){if(!s||s.version!==1)throw new Error('Unsupported state file');memory.load(s.memory);forth.restore(s.forth);cpu.restore(s.cpu);io.restore(s.io);terminal.log=s.terminal||'';terminal.render();updateAll();}
+$('#saveState').onclick=()=>{localStorage.setItem('t9-state',JSON.stringify(appState()));terminal.writeln('[state saved locally]')};$('#loadState').onclick=()=>{try{const s=JSON.parse(localStorage.getItem('t9-state'));restoreState(s);terminal.writeln('[state loaded]')}catch(e){alert(e.message)}};$('#exportState').onclick=()=>download('t9-machine-state.json',JSON.stringify(appState(),null,2));$('#importStateBtn').onclick=()=>$('#importStateFile').click();$('#importStateFile').onchange=async e=>{try{restoreState(JSON.parse(await e.target.files[0].text()))}catch(err){alert(err.message)}};$('#exportLog').onclick=()=>download('t9-terminal.txt',terminal.log,'text/plain');
+$('#exportMem').onclick=()=>download('t9-memory.json',JSON.stringify(memory.dump()));$('#importMemBtn').onclick=()=>$('#importMemFile').click();$('#importMemFile').onchange=async e=>{try{memory.load(JSON.parse(await e.target.files[0].text()));updateMemory();updateAll(false)}catch(err){alert(err.message)}};
+
+// architecture text
+function opcodeTableHTML(){return OPCODE_NAMES.map((n,i)=>{const c=OPS[n];return `<div class="op"><b>${TernaryWord.format(c,'symbols',3)}</b> (${c}) → ${n}${OPERAND_OPS.has(n)?' [operand]':''}</div>`}).join('')}
+$('#archText').innerHTML=`
+<p><b>T9</b> is a deliberately small, hardware-oriented balanced-ternary stack computer. A word contains nine trits, so one cell represents one of 19,683 patterns and wraps over the signed range <b>−9841…+9841</b>.</p>
+<p>The instruction field is a real <b>3-trit opcode</b>. Balanced ternary gives exactly 27 encodings, represented here as −13…+13. Operand-bearing instructions use the following 9-trit memory cell.</p>
+<div class="opgrid">${opcodeTableHTML()}</div>
+<h3>Memory map convention</h3><pre>0..255      assembly/program area
+256..383    interactive scratch
+384..1791   compiled Forth dictionary
+1792..2186  variables/data</pre>
+<h3>Forth execution boundary</h3><p>The JavaScript outer interpreter performs tokenization and compile-time dictionary work. It does <em>not</em> replace the CPU datapath. Colon definitions are encoded as CPU instructions in emulated memory and run via CALL/EXIT. Arithmetic, stack operations, memory access, compiled conditions, loops and I/O use CPU instructions. <code>VARIABLE</code>, <code>CONSTANT</code>, <code>WORDS</code> and <code>DEPTH</code> are outer-interpreter services.</p>
+<h3>Three-way condition logic</h3><p>The hardware-native relation is NEGATIVE / ZERO / POSITIVE. NBRANCH, ZBRANCH and PBRANCH expose each path directly. CMP yields −1, 0 or +1. Forth comparisons compile CMP plus a tiny branch sequence that produces 0 for false and −1 for true.</p>
+<h3>Implemented Forth subset</h3><pre>DUP DROP SWAP OVER ROT
++ - NEGATE *
+@ ! >R R>
+. EMIT KEY CR SPACE
+= < > 0= 0< 0>
+IF ELSE THEN BEGIN UNTIL AGAIN
+: ; VARIABLE CONSTANT WORDS DEPTH BYE/HALT</pre>
+<p><b>Not yet implemented:</b> /, MOD, DO/LOOP, strings, CREATE/DOES&gt;, full ANS Forth, persistent block/file words.</p>
+<h3>Physical intent</h3><p>The CPU deliberately favors a tiny decoder, explicit stack transfers, one memory interface, branch primitives, and simple numbered I/O. The voltage panel maps each logical trit to a conceptual rail (default −5 V / 0 V / +5 V). It is not an analog simulator, but the logical decomposition is intended to remain useful when designing diode matrices, transistor restorers, latches and external drivers.</p>`;
+
+// tests
+function runTests(){
+  const tests=[];const add=(name,fn)=>{try{const d=fn();tests.push({name,ok:true,detail:d??'pass'})}catch(e){tests.push({name,ok:false,detail:e.message})}};const eq=(a,b,msg='')=>{if(a!==b)throw new Error((msg?msg+': ':'')+a+' ≠ '+b)};
+  add('roundtrip representative values',()=>{for(const n of [-9841,-100,-1,0,1,100,9841])eq(TernaryWord.fromTrits(TernaryWord.toTrits(n)),n);});
+  add('minimum -9841',()=>eq(TernaryWord.fromTrits(TernaryWord.toTrits(-9841)),-9841));add('maximum +9841',()=>eq(TernaryWord.fromTrits(TernaryWord.toTrits(9841)),9841));add('zero',()=>eq(TernaryWord.format(0),'000000000'));
+  add('addition 3+4',()=>eq(new ALU().add(3,4),7));add('subtraction 7-10',()=>eq(new ALU().sub(7,10),-3));add('negation -3',()=>eq(new ALU().neg(-3),3));add('carry propagation',()=>eq(new ALU().add(1,1),2));add('wrap +9841 + 1',()=>eq(new ALU().add(9841,1),-9841));add('wrap -9841 - 1',()=>eq(new ALU().sub(-9841,1),9841));
+  add('stack DUP',()=>{const m=new Memory(729),t=new Terminal(document.createElement('div')),i=new IOController(t),c=new CPU(m,i);m.write(0,OPS.DUP);c.data.push(7);c.stepInstruction();eq(c.data.depth,2);eq(c.T,7);});
+  add('stack SWAP',()=>{const m=new Memory(729),t=new Terminal(document.createElement('div')),i=new IOController(t),c=new CPU(m,i);m.write(0,OPS.SWAP);c.data.push(1);c.data.push(2);c.stepInstruction();eq(c.T,1);eq(c.N,2);});
+  add('memory read/write',()=>{const m=new Memory(729);m.write(12,-55);eq(m.read(12),-55)});
+  add('CALL/EXIT',()=>{const m=new Memory(729),t=new Terminal(document.createElement('div')),i=new IOController(t),c=new CPU(m,i);m.write(0,OPS.CALL);m.write(1,10);m.write(2,OPS.HALT);m.write(10,OPS.LIT);m.write(11,9);m.write(12,OPS.EXIT);c.runBurst(10);eq(c.T,9);eq(c.halted,true);});
+  function branchTest(op,val,should){const m=new Memory(729),t=new Terminal(document.createElement('div')),i=new IOController(t),c=new CPU(m,i);m.write(0,OPS.LIT);m.write(1,val);m.write(2,OPS[op]);m.write(3,7);m.write(4,OPS.LIT);m.write(5,1);m.write(6,OPS.HALT);m.write(7,OPS.LIT);m.write(8,2);m.write(9,OPS.HALT);c.runBurst(10);eq(c.T,should?2:1)}
+  add('zero branch',()=>branchTest('ZBRANCH',0,true));add('negative branch',()=>branchTest('NBRANCH',-1,true));add('positive branch',()=>branchTest('PBRANCH',1,true));
+  add('assembler/disassembler',()=>{const m=new Memory(729),a=new Assembler(m),d=new Disassembler(m),o=a.assemble('LIT 3\nLIT 4\nADD\nHALT');a.load(o);eq(d.one(0).name,'LIT');eq(d.one(2).name,'LIT');eq(d.one(4).name,'ADD')});
+  add('basic Forth 3 4 +',()=>{const m=new Memory(2187),t=new Terminal(document.createElement('div')),i=new IOController(t),c=new CPU(m,i),a=new Assembler(m),f=new ForthKernel(c,m,a,t);f.eval('3 4 +');eq(c.T,7)});
+  add('colon DOUBLE',()=>{const m=new Memory(2187),t=new Terminal(document.createElement('div')),i=new IOController(t),c=new CPU(m,i),a=new Assembler(m),f=new ForthKernel(c,m,a,t);f.eval(': DOUBLE DUP + ;');f.eval('7 DOUBLE');eq(c.T,14)});
+  const pass=tests.filter(t=>t.ok).length;$('#testSummary').innerHTML=`<span class="${pass===tests.length?'pass':'fail'}">${pass}/${tests.length} passed</span>`;$('#testBody').innerHTML=tests.map(t=>`<tr><td>${t.name}</td><td class="${t.ok?'pass':'fail'}">${t.ok?'PASS':'FAIL'}</td><td>${t.detail}</td></tr>`).join('');return tests;
+}
+$('#testBtn').onclick=runTests;
+
+updateLogic();updateAll();showAsm();
+</script>
+</body>
+</html>
