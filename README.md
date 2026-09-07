@@ -1,2 +1,2 @@
 # t9
-Ternary computer emulator
+Ternary Forth computer emulator
